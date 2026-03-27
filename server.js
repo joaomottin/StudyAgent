@@ -4,12 +4,10 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs/promises');
 const { PDFParse } = require('pdf-parse');
-const dotenv = require('dotenv');
-
-dotenv.config();
+const config = require('./config');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = config.PORT;
 const ROOT_DIR = __dirname;
 const AULAS_DIR = path.join(ROOT_DIR, 'aulas');
 
