@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Estudo Agent</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <section id="view-home" class="view active" aria-label="Painel de aulas">
+        <header class="page-header">
+          <div>
+            <p class="eyebrow">Organize. Aprenda. Revise.</p>
+            <h1>Seu Painel de Aulas</h1>
+          </div>
+          <button id="openAddAulaBtn" class="btn btn-primary" type="button">
+            + Adicionar Aula
+          </button>
+        </header>
+
+        <main>
+          <div id="aulasGrid" class="aulas-grid" aria-live="polite"></div>
+          <div id="aulasEmptyState" class="empty-state hidden">
+            <h2>Nenhuma aula cadastrada</h2>
+            <p>Adicione sua primeira aula para começar a estudar com IA.</p>
+          </div>
+        </main>
+      </section>
+
+      <section id="view-study" class="view hidden" aria-label="Tela de estudo da aula">
+        <header class="study-header">
+          <button id="voltarPainelBtn" class="btn btn-ghost" type="button">Voltar</button>
+          <div>
+            <p class="eyebrow">Modo de estudo ativo</p>
+            <h1 id="estudoAulaNome">Aula selecionada</h1>
+          </div>
+        </header>
+
+        <div class="study-modes" role="tablist" aria-label="Modos de estudo">
+          <button class="mode-btn" data-modo="resumo" type="button">📝 Resumo</button>
+          <button class="mode-btn" data-modo="mapa mental" type="button">🗺️ Mapa Mental</button>
+          <button class="mode-btn" data-modo="flashcards" type="button">🃏 Flashcards</button>
+          <button class="mode-btn" data-modo="busca por tema" type="button">
+            🔍 Busca por Tema
+          </button>
+        </div>
+
+        <div id="modeControls" class="mode-controls"></div>
+
+        <section id="resultadoSection" class="resultado-section">
+          <header class="resultado-header">
+            <h2>Resultado</h2>
+          </header>
+          <div id="resultadoArea" class="resultado-area">
+            <p class="placeholder-text">
+              Selecione um modo acima e clique em gerar para receber o conteúdo.
+            </p>
+          </div>
+        </section>
+      </section>
+    </div>
+
+    <div id="addAulaModal" class="modal hidden" aria-hidden="true" role="dialog">
+      <div class="modal-backdrop" data-close-modal="true"></div>
+      <div class="modal-content" role="document">
+        <header class="modal-header">
+          <h2>Adicionar Aula</h2>
+          <button id="closeAddAulaBtn" class="icon-btn" type="button" aria-label="Fechar modal">
+            x
+          </button>
+        </header>
+
+        <form id="addAulaForm" class="modal-form" novalidate>
+          <label class="field-group">
+            <span>Nome da Aula</span>
+            <input
+              id="nomeAulaInput"
+              name="nomeAula"
+              type="text"
+              placeholder="Ex: Aula 1 - Aquisição de Dados"
+              required
+            />
+          </label>
+
+          <section class="transcription-section">
+            <h3>Transcrição da Aula (PDF)</h3>
+            <p class="section-tip">Cole o texto abaixo ou envie um arquivo .txt/.pdf</p>
+            <label class="field-group">
+              <span>Texto da aula</span>
+              <textarea
+                id="aulaTextoInput"
+                name="aulaTexto"
+                rows="5"
+                placeholder="Cole aqui a transcrição principal da aula"
+              ></textarea>
+            </label>
+            <label class="field-group compact">
+              <span>Arquivo da aula (.txt ou .pdf)</span>
+              <input
+                id="aulaArquivoInput"
+                name="aulaArquivo"
+                type="file"
+                accept=".txt,.pdf,text/plain,application/pdf"
+              />
+            </label>
+          </section>
+
+          <section class="transcription-section">
+            <div class="section-row">
+              <h3>Transcrições dos Vídeos</h3>
+              <button id="addVideoBtn" class="btn btn-secondary" type="button">
+                + Adicionar outro vídeo
+              </button>
+            </div>
+            <p class="section-tip">Cada vídeo pode receber texto colado ou um arquivo .txt</p>
+            <div id="videosContainer" class="videos-container"></div>
+          </section>
+
+          <footer class="modal-footer">
+            <button id="cancelAddAulaBtn" class="btn btn-ghost" type="button">Cancelar</button>
+            <button id="salvarAulaBtn" class="btn btn-primary" type="submit">
+              <span class="btn-text">Salvar e Processar Aula</span>
+              <span class="btn-loader hidden" aria-hidden="true">
+                <span class="spinner"></span>
+                <span>Salvando arquivos...</span>
+              </span>
+            </button>
+          </footer>
+        </form>
+      </div>
+    </div>
+
+    <div id="globalLoader" class="global-loader hidden" aria-live="polite" aria-busy="true">
+      <div class="loader-box">
+        <span class="spinner"></span>
+        <p id="globalLoaderText">Processando...</p>
+      </div>
+    </div>
+
+    <template id="videoItemTemplate">
+      <article class="video-item">
+        <header>
+          <h4>Vídeo</h4>
+          <button class="icon-btn remove-video-btn" type="button" aria-label="Remover vídeo">
+            x
+          </button>
+        </header>
+
+        <label class="field-group">
+          <span>Nome do vídeo</span>
+          <input
+            class="video-nome-input"
+            type="text"
+            placeholder="Ex: Vídeo 1 - Introdução"
+            required
+          />
+        </label>
+
+        <label class="field-group">
+          <span>Transcrição do vídeo</span>
+          <textarea
+            class="video-texto-input"
+            rows="4"
+            placeholder="Cole aqui a transcrição do vídeo"
+          ></textarea>
+        </label>
+
+        <label class="field-group compact">
+          <span>Arquivo .txt do vídeo</span>
+          <input class="video-arquivo-input" type="file" accept=".txt,text/plain" />
+        </label>
+      </article>
+    </template>
+
+    <script src="app.js"></script>
+  </body>
+</html>

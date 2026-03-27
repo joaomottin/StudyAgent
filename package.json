@@ -1,0 +1,25 @@
+{
+  "name": "estudo-agent",
+  "version": "1.0.0",
+  "description": "Agente de estudos local com Node.js, frontend em HTML/CSS/JS e integração com Gemini",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": [
+    "estudos",
+    "gemini",
+    "node",
+    "express"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "multer": "^2.1.1",
+    "pdf-parse": "^2.4.5"
+  }
+}
