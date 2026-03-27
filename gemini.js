@@ -2,19 +2,33 @@ const {
   readAulaByName,
   readAllAulas,
 } = require('./fileReader');
-const config = require('./config');
+const dotenv = require('dotenv');
 const fs = require('fs/promises');
 const path = require('path');
 const crypto = require('crypto');
 
-const GEMINI_MODEL = 'gemini-2.5-flash';
+dotenv.config();
+
+const GEMINI_MODEL = String(process.env.GEMINI_MODEL || '').trim();
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
-const MAX_PDF_INLINE_BYTES = config.GEMINI_MAX_PDF_INLINE_BYTES;
-const GEMINI_CACHE_TTL_SECONDS = config.GEMINI_CACHE_TTL_SECONDS;
+const MAX_PDF_INLINE_BYTES = Number(process.env.GEMINI_MAX_PDF_INLINE_BYTES);
+const GEMINI_CACHE_TTL_SECONDS = Number(process.env.GEMINI_CACHE_TTL_SECONDS);
 const GEMINI_CACHE_DIR = path.join(__dirname, '.cache', 'gemini');
 
+if (!GEMINI_MODEL) {
+  throw new Error('GEMINI_MODEL nao encontrado no arquivo .env.');
+}
+
+if (!Number.isFinite(MAX_PDF_INLINE_BYTES) || MAX_PDF_INLINE_BYTES <= 0) {
+  throw new Error('GEMINI_MAX_PDF_INLINE_BYTES invalido no .env. Use um numero inteiro positivo.');
+}
+
+if (!Number.isFinite(GEMINI_CACHE_TTL_SECONDS) || GEMINI_CACHE_TTL_SECONDS < 0) {
+  throw new Error('GEMINI_CACHE_TTL_SECONDS invalido no .env. Use um numero inteiro maior ou igual a zero.');
+}
+
 function getApiKey() {
-  const apiKey = config.GEMINI_API_KEY;
+  const apiKey = String(process.env.GEMINI_API_KEY || '').trim();
 
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY nao encontrada no arquivo .env.');

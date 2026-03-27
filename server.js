@@ -4,12 +4,18 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs/promises');
 const { PDFParse } = require('pdf-parse');
-const config = require('./config');
+const dotenv = require('dotenv');
+
+dotenv.config();
 
 const app = express();
-const PORT = config.PORT;
+const PORT = Number(process.env.PORT);
 const ROOT_DIR = __dirname;
 const AULAS_DIR = path.join(ROOT_DIR, 'aulas');
+
+if (!Number.isFinite(PORT) || PORT <= 0) {
+  throw new Error('PORT invalida no .env. Use um numero inteiro positivo.');
+}
 
 const upload = multer({
   storage: multer.memoryStorage(),

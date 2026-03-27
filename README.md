@@ -73,6 +73,7 @@ Crie um arquivo `.env` na raiz do projeto com:
 
 ```env
 GEMINI_API_KEY=sua_chave_aqui
+GEMINI_MODEL=gemini-2.5-flash
 PORT=3000
 GEMINI_MAX_PDF_INLINE_BYTES=4500000
 GEMINI_CACHE_TTL_SECONDS=86400
@@ -81,6 +82,7 @@ GEMINI_CACHE_TTL_SECONDS=86400
 Observações:
 - a chave fica somente no backend;
 - o frontend nunca chama o Gemini diretamente.
+- `GEMINI_MODEL` define qual modelo do Gemini sera utilizado.
 - `GEMINI_MAX_PDF_INLINE_BYTES` controla o tamanho maximo do PDF enviado no modo multimodal.
 - `GEMINI_CACHE_TTL_SECONDS` define por quantos segundos respostas do Gemini ficam em cache local.
 
