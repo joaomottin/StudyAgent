@@ -169,14 +169,12 @@ function clearAddAulaForm() {
 function addVideoItem(initialValues = {}) {
   const template = els.videoItemTemplate.content.firstElementChild.cloneNode(true);
   const title = template.querySelector('h4');
-  const nomeInput = template.querySelector('.video-nome-input');
   const textoInput = template.querySelector('.video-texto-input');
   const removeBtn = template.querySelector('.remove-video-btn');
 
   const index = els.videosContainer.querySelectorAll('.video-item').length + 1;
   title.textContent = `Video ${index}`;
 
-  nomeInput.value = initialValues.nome || '';
   textoInput.value = initialValues.texto || '';
 
   removeBtn.addEventListener('click', () => {
@@ -200,12 +198,11 @@ function collectVideosFromForm() {
 
   return items
     .map((item, index) => {
-      const nomeInput = item.querySelector('.video-nome-input');
       const textoInput = item.querySelector('.video-texto-input');
       const arquivoInput = item.querySelector('.video-arquivo-input');
 
       return {
-        nome: (nomeInput.value || '').trim() || `Video ${index + 1}`,
+        nome: `Video ${index + 1}`,
         texto: (textoInput.value || '').trim(),
         arquivo: arquivoInput.files[0] || null,
       };
