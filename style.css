@@ -467,7 +467,7 @@ input[type='file'] {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   gap: 16px;
   width: 100%;
 }
@@ -475,12 +475,13 @@ input[type='file'] {
 .file-name {
   color: #f5f5f5;
   font-size: 0.95rem;
-  flex: 1;
-  min-width: 220px;
+  flex: 0 1 auto;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
+  text-align: center;
 }
 
 .pdf-upload-field input[type='file'] {
