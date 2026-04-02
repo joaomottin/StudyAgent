@@ -89,27 +89,25 @@
             />
           </label>
 
-          <section class="transcription-section">
+          <section class="transcription-section pdf-upload-section">
             <h3>Transcrição da Aula (PDF)</h3>
-            <p class="section-tip">Cole o texto abaixo ou envie um arquivo .txt/.pdf</p>
-            <label class="field-group">
-              <span>Texto da aula</span>
-              <textarea
-                id="aulaTextoInput"
-                name="aulaTexto"
-                rows="5"
-                placeholder="Cole aqui a transcrição principal da aula"
-              ></textarea>
-            </label>
-            <label class="field-group compact">
-              <span>Arquivo da aula (.txt ou .pdf)</span>
+            <p class="section-tip">Envie apenas o PDF principal da aula.</p>
+            <div class="field-group compact pdf-upload-field">
+              <span>Arquivo da aula (.pdf)</span>
+              <div class="upload-control">
+                <button id="aulaArquivoBtn" class="btn btn-primary" type="button">
+                  Escolher arquivo
+                </button>
+                <span id="aulaArquivoName" class="file-name">Nenhum arquivo escolhido</span>
+              </div>
               <input
                 id="aulaArquivoInput"
                 name="aulaArquivo"
                 type="file"
-                accept=".txt,.pdf,text/plain,application/pdf"
+                accept=".pdf,application/pdf"
+                hidden
               />
-            </label>
+            </div>
           </section>
 
           <section class="transcription-section">

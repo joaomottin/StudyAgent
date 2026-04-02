@@ -146,11 +146,18 @@ function getVideoFileByIndex(req, index) {
 
 async function parseCreateAulaPayload(req) {
   const nomeAula = sanitizeName(req.body.nomeAula || req.body.nome);
-  const aulaTexto = normalizeLineBreaks(req.body.aulaTexto || req.body.transcricaoAula);
   const aulaArquivo = getSingleFileByField(req, 'aulaArquivo');
   const videos = parseVideosJson(req.body.videos);
 
-  const aulaData = await extractAulaText(aulaArquivo, aulaTexto);
+  if (!aulaArquivo) {
+    throw new Error('Envie o PDF da transcricao da aula.');
+  }
+
+  if (!isPdfFile(aulaArquivo)) {
+    throw new Error('A transcricao da aula deve ser enviada em PDF.');
+  }
+
+  const aulaData = await extractAulaText(aulaArquivo, '');
   const aulaTranscricao = aulaData.text;
 
   const videosNormalizados = videos.map((video, index) => {

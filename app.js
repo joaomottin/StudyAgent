@@ -26,7 +26,8 @@ const els = {
   cancelAddAulaBtn: document.getElementById('cancelAddAulaBtn'),
   addAulaForm: document.getElementById('addAulaForm'),
   nomeAulaInput: document.getElementById('nomeAulaInput'),
-  aulaTextoInput: document.getElementById('aulaTextoInput'),
+  aulaArquivoBtn: document.getElementById('aulaArquivoBtn'),
+  aulaArquivoName: document.getElementById('aulaArquivoName'),
   aulaArquivoInput: document.getElementById('aulaArquivoInput'),
   videosContainer: document.getElementById('videosContainer'),
   addVideoBtn: document.getElementById('addVideoBtn'),
@@ -159,6 +160,7 @@ function closeModal() {
 
 function clearAddAulaForm() {
   els.addAulaForm.reset();
+  els.aulaArquivoName.textContent = 'Nenhum arquivo escolhido';
   els.videosContainer.innerHTML = '';
   addVideoItem();
   setSalvarAulaLoading(false);
@@ -234,7 +236,6 @@ async function handleSubmitAddAula(event) {
   event.preventDefault();
 
   const nomeAula = els.nomeAulaInput.value.trim();
-  const aulaTexto = els.aulaTextoInput.value.trim();
   const aulaArquivo = els.aulaArquivoInput.files[0] || null;
   const videos = collectVideosFromForm();
 
@@ -243,8 +244,17 @@ async function handleSubmitAddAula(event) {
     return;
   }
 
-  if (!aulaTexto && !aulaArquivo) {
-    window.alert('Preencha a transcricao da aula (texto ou arquivo .txt/.pdf).');
+  if (!aulaArquivo) {
+    window.alert('Envie o PDF da transcricao da aula.');
+    return;
+  }
+
+  const arquivoEhPdf =
+    String(aulaArquivo.type || '').toLowerCase() === 'application/pdf' ||
+    String(aulaArquivo.name || '').toLowerCase().endsWith('.pdf');
+
+  if (!arquivoEhPdf) {
+    window.alert('Envie apenas arquivo PDF na transcricao da aula.');
     return;
   }
 
@@ -255,11 +265,7 @@ async function handleSubmitAddAula(event) {
 
   const payload = new FormData();
   payload.append('nomeAula', nomeAula);
-  payload.append('aulaTexto', aulaTexto);
-
-  if (aulaArquivo) {
-    payload.append('aulaArquivo', aulaArquivo);
-  }
+  payload.append('aulaArquivo', aulaArquivo);
 
   const videosMeta = videos.map((video, index) => {
     if (video.arquivo) {
@@ -738,6 +744,12 @@ function bindEvents() {
     if (event.key === 'Escape' && !els.addAulaModal.classList.contains('hidden')) {
       closeModal();
     }
+  });
+
+  els.aulaArquivoBtn.addEventListener('click', () => els.aulaArquivoInput.click());
+  els.aulaArquivoInput.addEventListener('change', () => {
+    const file = els.aulaArquivoInput.files[0];
+    els.aulaArquivoName.textContent = file ? file.name : 'Nenhum arquivo escolhido';
   });
 
   els.addVideoBtn.addEventListener('click', () => addVideoItem());
