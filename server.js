@@ -115,6 +115,14 @@ function getFaseStatusByName(faseNome, nowDate = new Date()) {
   return getFasesStatus(nowDate).find((fase) => fase.nome === faseNormalizada) || null;
 }
 
+function getMensagemFaseBloqueada(faseNome) {
+  const faseInfo = getFaseStatusByName(faseNome);
+  return {
+    bloqueada: Boolean(faseInfo && !faseInfo.liberada),
+    mensagem: `${faseNome} ainda esta bloqueada. Liberacao prevista para ${faseInfo?.dataLiberacao || 'data futura'}.`,
+  };
+}
+
 function normalizeModeName(value) {
   return String(value || '')
     .trim()
@@ -603,7 +611,7 @@ app.get('/api/aulas', async (req, res) => {
 
     const fasesComLimite = fases.map((fase) => ({
       ...fase,
-      podeCriarConteudo: fase.conteudos.length < fase.limiteConteudos,
+      podeCriarConteudo: fase.liberada && fase.conteudos.length < fase.limiteConteudos,
     }));
 
     res.json({
@@ -622,6 +630,12 @@ app.get('/api/aulas', async (req, res) => {
 app.post('/api/conteudos', async (req, res) => {
   try {
     const payload = parseCreateConteudoPayload(req);
+    const faseStatus = getMensagemFaseBloqueada(payload.fase);
+
+    if (faseStatus.bloqueada) {
+      return res.status(403).json({ erro: faseStatus.mensagem });
+    }
+
     const conteudo = await salvarConteudo(payload);
 
     res.status(201).json({
@@ -636,6 +650,12 @@ app.post('/api/conteudos', async (req, res) => {
 app.post('/api/aulas', upload.any(), async (req, res) => {
   try {
     const payload = await parseCreateAulaPayload(req);
+    const faseStatus = getMensagemFaseBloqueada(payload.fase);
+
+    if (faseStatus.bloqueada) {
+      return res.status(403).json({ erro: faseStatus.mensagem });
+    }
+
     await salvarAula(payload);
 
     res.status(201).json({

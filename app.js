@@ -125,6 +125,11 @@ function getCurrentFaseInfo() {
   return state.fases.find((fase) => fase.nome === state.nav.fase) || null;
 }
 
+function isFaseLiberadaByName(faseNome) {
+  const faseInfo = state.fases.find((fase) => fase.nome === faseNome);
+  return Boolean(faseInfo?.liberada);
+}
+
 function getLimiteConteudosDaFaseAtual() {
   const faseInfo = getCurrentFaseInfo();
   const limiteDaFase = Number(faseInfo?.limiteConteudos);
@@ -214,6 +219,13 @@ function updateHomeActions() {
 
   els.openAddAulaBtn.classList.remove('hidden');
 
+  const faseInfo = getCurrentFaseInfo();
+  if (!faseInfo?.liberada) {
+    els.openAddAulaBtn.disabled = true;
+    els.openAddAulaBtn.textContent = `Fase bloqueada ate ${faseInfo?.dataLiberacao || 'data futura'}`;
+    return;
+  }
+
   if (!state.nav.conteudo) {
     const limiteAtingido = faseAtingiuLimiteConteudos();
     const limite = getLimiteConteudosDaFaseAtual();
@@ -248,13 +260,19 @@ function createFaseCard(faseInfo) {
   const button = document.createElement('button');
   button.className = 'btn btn-primary';
   button.type = 'button';
-  button.textContent = 'Entrar na fase';
-  button.addEventListener('click', () => {
-    state.nav.fase = faseInfo.nome;
-    state.nav.conteudo = null;
-    renderHomePanel();
-    persistHistoryState();
-  });
+  button.disabled = !faseInfo.liberada;
+  button.textContent = faseInfo.liberada
+    ? 'Entrar na fase'
+    : `Disponivel em ${faseInfo.dataLiberacao}`;
+
+  if (faseInfo.liberada) {
+    button.addEventListener('click', () => {
+      state.nav.fase = faseInfo.nome;
+      state.nav.conteudo = null;
+      renderHomePanel();
+      persistHistoryState();
+    });
+  }
 
   card.append(title, status, conteudosInfo, button);
   return card;
@@ -399,6 +417,11 @@ async function loadAulas() {
     state.nav.conteudo = null;
   }
 
+  if (state.nav.fase && !isFaseLiberadaByName(state.nav.fase)) {
+    state.nav.fase = null;
+    state.nav.conteudo = null;
+  }
+
   if (
     state.nav.fase &&
     state.nav.conteudo &&
@@ -469,6 +492,12 @@ async function handleCreateConteudo() {
     return;
   }
 
+  if (!isFaseLiberadaByName(state.nav.fase)) {
+    const faseInfo = getCurrentFaseInfo();
+    window.alert(`Esta fase esta bloqueada ate ${faseInfo?.dataLiberacao || 'data futura'}.`);
+    return;
+  }
+
   const limite = getLimiteConteudosDaFaseAtual();
   if (faseAtingiuLimiteConteudos()) {
     window.alert(`Esta fase ja atingiu o limite de ${limite} conteudos gerais.`);
@@ -508,6 +537,12 @@ function handlePrimaryHomeAction() {
     return;
   }
 
+  if (!isFaseLiberadaByName(state.nav.fase)) {
+    const faseInfo = getCurrentFaseInfo();
+    window.alert(`Esta fase esta bloqueada ate ${faseInfo?.dataLiberacao || 'data futura'}.`);
+    return;
+  }
+
   if (!state.nav.conteudo) {
     handleCreateConteudo();
     return;
@@ -536,7 +571,10 @@ function applyHistoryState(snapshot) {
   state.nav.fase = typeof snapshot?.fase === 'string' ? snapshot.fase : null;
   state.nav.conteudo = typeof snapshot?.conteudo === 'string' ? snapshot.conteudo : null;
 
-  if (state.nav.fase && !state.fases.find((fase) => fase.nome === state.nav.fase)) {
+  if (
+    state.nav.fase &&
+    (!state.fases.find((fase) => fase.nome === state.nav.fase) || !isFaseLiberadaByName(state.nav.fase))
+  ) {
     state.nav.fase = null;
     state.nav.conteudo = null;
   }
@@ -553,7 +591,7 @@ function applyHistoryState(snapshot) {
 
   if (view === 'study' && aulaCaminho) {
     const aula = state.aulas.find((item) => item.caminho === aulaCaminho);
-    if (aula) {
+    if (aula && aula.liberada) {
       openStudyView(aula, { pushHistory: false });
       return;
     }
