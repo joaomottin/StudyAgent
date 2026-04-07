@@ -74,6 +74,12 @@ body {
   letter-spacing: -0.03em;
 }
 
+.page-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .btn,
 .mode-btn,
 .icon-btn {
@@ -161,6 +167,99 @@ body {
   gap: 18px;
 }
 
+#aulasGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 18px;
+}
+
+.fase-card-clickable {
+  background: linear-gradient(180deg, rgba(35, 35, 35, 0.9) 0%, var(--surface) 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 190px;
+}
+
+.fase-card-clickable h3 {
+  margin: 0;
+}
+
+.fase-card-clickable .btn {
+  margin-top: auto;
+}
+
+.fase-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px;
+  background: linear-gradient(180deg, rgba(28, 28, 28, 0.88) 0%, rgba(18, 18, 18, 0.88) 100%);
+}
+
+.fase-section.locked {
+  border-color: rgba(124, 124, 124, 0.65);
+}
+
+.fase-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.fase-header h2 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.fase-status {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.fase-status.open {
+  background: rgba(20, 184, 106, 0.15);
+  border: 1px solid rgba(20, 184, 106, 0.5);
+  color: #8ef1bf;
+}
+
+.fase-status.locked {
+  background: rgba(239, 68, 68, 0.14);
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  color: #ffc7c7;
+}
+
+.fase-empty {
+  margin: 0;
+  color: var(--muted);
+}
+
+.conteudo-group {
+  display: grid;
+  gap: 12px;
+}
+
+.conteudo-group + .conteudo-group {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.conteudo-group h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: #e9d8ff;
+}
+
 .aula-card {
   background: linear-gradient(180deg, rgba(35, 35, 35, 0.9) 0%, var(--surface) 100%);
   border: 1px solid var(--border);
@@ -189,6 +288,18 @@ body {
   margin: 0;
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+.aula-submeta {
+  margin: -6px 0 0;
+  color: #d6d6d6;
+  font-size: 0.86rem;
+}
+
+.btn-locked {
+  background: rgba(80, 80, 80, 0.45);
+  border-color: rgba(190, 190, 190, 0.3);
+  box-shadow: none;
 }
 
 .aula-actions {
@@ -262,6 +373,7 @@ body {
 }
 
 input[type='text'],
+select,
 textarea,
 input[type='file'] {
   width: 100%;
@@ -273,6 +385,7 @@ input[type='file'] {
 }
 
 input[type='text'],
+select,
 textarea {
   padding: 12px;
 }
@@ -283,6 +396,7 @@ textarea {
 }
 
 input:focus,
+select:focus,
 textarea:focus {
   outline: none;
   border-color: rgba(233, 30, 140, 0.72);
@@ -411,6 +525,16 @@ input[type='file'] {
   color: #e9e9e9;
   font-size: 0.92rem;
   font-weight: 600;
+}
+
+.context-pill {
+  margin: 0;
+  border: 1px solid rgba(233, 30, 140, 0.45);
+  background: rgba(233, 30, 140, 0.08);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 0.92rem;
+  color: #ffe1f0;
 }
 
 .field-group.compact > span {
