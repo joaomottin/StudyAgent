@@ -23,15 +23,19 @@ body {
   margin: 0;
   padding: 0;
   min-height: 100%;
+  height: 100%;
 }
 
 body {
+  min-height: 100vh;
   font-family: 'Inter', sans-serif;
   color: var(--text);
   background:
     radial-gradient(circle at 15% 5%, rgba(124, 58, 237, 0.18) 0%, transparent 30%),
     radial-gradient(circle at 90% 10%, rgba(233, 30, 140, 0.14) 0%, transparent 28%),
+    radial-gradient(circle at 50% 95%, rgba(124, 58, 237, 0.12) 0%, transparent 42%),
     linear-gradient(165deg, #090909 0%, var(--bg) 45%, #111111 100%);
+  background-attachment: fixed;
   line-height: 1.5;
 }
 
@@ -40,20 +44,31 @@ body {
 }
 
 .app-shell {
-  width: min(1240px, 92vw);
+  width: min(1380px, 95vw);
   margin: 0 auto;
-  padding: 36px 0 64px;
+  min-height: 100vh;
+  padding: 30px 0 42px;
 }
 
 .view {
   animation: fadeUp 0.28s ease;
+  max-width: 1260px;
+  margin: 0 auto;
+}
+
+#view-home.active {
+  min-height: calc(100vh - 72px);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  padding-top: clamp(8px, 2.5vh, 24px);
 }
 
 .eyebrow {
-  margin: 0 0 8px;
+  margin: 0 0 10px;
   color: var(--muted);
-  font-size: 0.8rem;
-  letter-spacing: 0.08em;
+  font-size: 0.84rem;
+  letter-spacing: 0.11em;
   text-transform: uppercase;
   font-weight: 700;
 }
@@ -61,23 +76,40 @@ body {
 .page-header,
 .study-header {
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
   align-items: center;
-  gap: 20px;
-  margin-bottom: 28px;
+  flex-direction: column;
+  text-align: center;
+  gap: 14px;
+  margin-bottom: 34px;
+}
+
+.page-header > div:first-child,
+.study-header > div {
+  text-align: center;
 }
 
 .page-header h1,
 .study-header h1 {
   margin: 0;
-  font-size: clamp(1.6rem, 3vw, 2.3rem);
+  font-size: clamp(2rem, 3.8vw, 3rem);
   letter-spacing: -0.03em;
+  line-height: 1.08;
 }
 
 .page-header-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+#view-home main {
+  display: grid;
+  justify-items: center;
+  gap: 20px;
+  width: 100%;
 }
 
 .btn,
@@ -102,9 +134,9 @@ body {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  padding: 11px 18px;
-  border-radius: 10px;
-  font-size: 0.95rem;
+  padding: 13px 24px;
+  border-radius: 12px;
+  font-size: 1rem;
   font-weight: 600;
 }
 
@@ -163,30 +195,35 @@ body {
 
 .aulas-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
-  gap: 18px;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 390px));
+  justify-content: center;
+  gap: 22px;
+  width: min(1240px, 100%);
 }
 
 #aulasGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
-  gap: 18px;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 390px));
+  justify-content: center;
+  gap: 22px;
+  width: min(1240px, 100%);
 }
 
 .fase-card-clickable {
   background: linear-gradient(180deg, rgba(35, 35, 35, 0.9) 0%, var(--surface) 100%);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 20px;
+  border-radius: 20px;
+  padding: 24px;
   box-shadow: var(--shadow);
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  min-height: 190px;
+  gap: 14px;
+  min-height: 240px;
 }
 
 .fase-card-clickable h3 {
   margin: 0;
+  font-size: 1.62rem;
 }
 
 .fase-card-clickable .btn {
@@ -263,13 +300,13 @@ body {
 .aula-card {
   background: linear-gradient(180deg, rgba(35, 35, 35, 0.9) 0%, var(--surface) 100%);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 20px;
+  border-radius: 20px;
+  padding: 24px;
   box-shadow: var(--shadow);
   display: flex;
   flex-direction: column;
   gap: 14px;
-  min-height: 190px;
+  min-height: 240px;
   transition: border-color 0.22s ease, transform 0.22s ease;
 }
 
@@ -280,20 +317,20 @@ body {
 
 .aula-card h3 {
   margin: 0;
-  font-size: 1.06rem;
+  font-size: 1.62rem;
   font-weight: 700;
 }
 
 .aula-meta {
   margin: 0;
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: 1.02rem;
 }
 
 .aula-submeta {
   margin: -6px 0 0;
   color: #d6d6d6;
-  font-size: 0.86rem;
+  font-size: 0.98rem;
 }
 
 .btn-locked {
@@ -306,39 +343,45 @@ body {
   margin-top: auto;
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 10px;
+  gap: 12px;
 }
 
 .empty-state {
-  margin-top: 30px;
+  margin-top: 32px;
   border: 1px dashed rgba(233, 30, 140, 0.5);
   background: rgba(233, 30, 140, 0.06);
   border-radius: var(--radius-lg);
   text-align: center;
-  padding: 40px 24px;
+  padding: 52px 34px;
+  width: min(940px, 100%);
 }
 
 .empty-state h2 {
-  margin: 0 0 8px;
+  margin: 0 0 12px;
+  font-size: 1.9rem;
 }
 
 .empty-state p {
   margin: 0;
   color: var(--muted);
+  font-size: 1.06rem;
 }
 
 .study-modes {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  gap: 12px;
+  width: min(1160px, 100%);
+  margin: 0 auto;
 }
 
 .mode-btn {
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.02);
-  border-radius: 12px;
+  border-radius: 14px;
   font-weight: 600;
-  padding: 12px 14px;
+  padding: 15px 18px;
+  font-size: 1rem;
   text-align: center;
 }
 
@@ -349,11 +392,14 @@ body {
 }
 
 .mode-controls {
-  margin: 16px 0 20px;
-  padding: 16px;
+  margin: 20px 0 24px;
+  padding: 20px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.02);
+  width: min(1160px, 100%);
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .mode-controls:empty {
@@ -369,7 +415,7 @@ body {
 
 .inline-controls input[type='text'] {
   flex: 1;
-  min-width: 260px;
+  min-width: 320px;
 }
 
 input[type='text'],
@@ -411,21 +457,23 @@ input[type='file'] {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: linear-gradient(180deg, rgba(28, 28, 28, 0.96) 0%, rgba(18, 18, 18, 0.96) 100%);
-  min-height: 360px;
+  min-height: 460px;
+  width: min(1160px, 100%);
+  margin: 0 auto;
 }
 
 .resultado-header {
-  padding: 16px 18px;
+  padding: 20px 24px;
   border-bottom: 1px solid var(--border);
 }
 
 .resultado-header h2 {
   margin: 0;
-  font-size: 1.06rem;
+  font-size: 1.22rem;
 }
 
 .resultado-area {
-  padding: 20px;
+  padding: 26px;
 }
 
 .placeholder-text {
@@ -895,18 +943,31 @@ input[type='file'] {
   .app-shell {
     width: min(1240px, 94vw);
   }
+
+  .aulas-grid,
+  #aulasGrid {
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  }
 }
 
 @media (max-width: 720px) {
   .app-shell {
     width: 94vw;
-    padding-top: 24px;
+    min-height: auto;
+    padding-top: 20px;
+    padding-bottom: 24px;
+  }
+
+  #view-home.active {
+    min-height: auto;
+    justify-content: flex-start;
   }
 
   .page-header,
   .study-header {
     flex-direction: column;
-    align-items: flex-start;
+    align-items: center;
+    text-align: center;
   }
 
   .study-modes {
@@ -915,6 +976,21 @@ input[type='file'] {
 
   .aulas-grid {
     grid-template-columns: 1fr;
+  }
+
+  #aulasGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .aula-card,
+  .fase-card-clickable {
+    min-height: 210px;
+    padding: 20px;
+  }
+
+  .aula-card h3,
+  .fase-card-clickable h3 {
+    font-size: 1.35rem;
   }
 
   .modal {
