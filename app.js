@@ -1,5 +1,10 @@
 const state = {
   aulas: [],
+  fases: [],
+  nav: {
+    fase: null,
+    conteudo: null,
+  },
   currentAula: null,
   currentMode: null,
   flashcards: {
@@ -12,6 +17,9 @@ const state = {
 const els = {
   viewHome: document.getElementById('view-home'),
   viewStudy: document.getElementById('view-study'),
+  homeTitle: document.getElementById('homeTitle'),
+  homeEyebrow: document.getElementById('homeEyebrow'),
+  homeBackBtn: document.getElementById('homeBackBtn'),
   aulasGrid: document.getElementById('aulasGrid'),
   aulasEmptyState: document.getElementById('aulasEmptyState'),
   estudoAulaNome: document.getElementById('estudoAulaNome'),
@@ -25,6 +33,7 @@ const els = {
   closeAddAulaBtn: document.getElementById('closeAddAulaBtn'),
   cancelAddAulaBtn: document.getElementById('cancelAddAulaBtn'),
   addAulaForm: document.getElementById('addAulaForm'),
+  addAulaContext: document.getElementById('addAulaContext'),
   nomeAulaInput: document.getElementById('nomeAulaInput'),
   aulaArquivoBtn: document.getElementById('aulaArquivoBtn'),
   aulaArquivoName: document.getElementById('aulaArquivoName'),
@@ -81,52 +90,256 @@ async function apiRequest(url, options = {}) {
   return data;
 }
 
-function renderAulas() {
-  els.aulasGrid.innerHTML = '';
+function getCurrentFaseInfo() {
+  return state.fases.find((fase) => fase.nome === state.nav.fase) || null;
+}
 
-  if (!state.aulas.length) {
-    els.aulasEmptyState.classList.remove('hidden');
+function getAulasDaNavegacaoAtual() {
+  return state.aulas.filter(
+    (aula) => aula.fase === state.nav.fase && aula.conteudoGeral === state.nav.conteudo
+  );
+}
+
+function getConteudosDaFaseAtual() {
+  const faseInfo = getCurrentFaseInfo();
+  const conteudosDaApi = Array.isArray(faseInfo?.conteudos) ? faseInfo.conteudos : [];
+  const map = new Map();
+
+  conteudosDaApi.forEach((conteudo) => {
+    map.set(conteudo.nome, {
+      nome: conteudo.nome,
+      totalAulas: Number(conteudo.totalAulas || 0),
+      totalVideos: Number(conteudo.totalVideos || 0),
+    });
+  });
+
+  state.aulas
+    .filter((aula) => aula.fase === state.nav.fase)
+    .forEach((aula) => {
+      if (!map.has(aula.conteudoGeral)) {
+        map.set(aula.conteudoGeral, {
+          nome: aula.conteudoGeral,
+          totalAulas: 0,
+          totalVideos: 0,
+        });
+      }
+
+      const item = map.get(aula.conteudoGeral);
+      item.totalAulas += 1;
+      item.totalVideos += Number(aula.totalVideos || 0);
+    });
+
+  return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+}
+
+function updateHomeHeader() {
+  if (!state.nav.fase) {
+    els.homeTitle.textContent = 'Suas Fases';
+    els.homeEyebrow.textContent = 'Clique em uma fase para entrar';
     return;
   }
 
-  els.aulasEmptyState.classList.add('hidden');
+  if (!state.nav.conteudo) {
+    els.homeTitle.textContent = state.nav.fase;
+    els.homeEyebrow.textContent = 'Agora clique em um conteúdo geral';
+    return;
+  }
 
-  state.aulas.forEach((aula) => {
-    const card = document.createElement('article');
-    card.className = 'aula-card';
+  els.homeTitle.textContent = state.nav.conteudo;
+  els.homeEyebrow.textContent = `${state.nav.fase} • Agora você pode adicionar aulas`;
+}
 
-    const title = document.createElement('h3');
-    title.textContent = aula.nome;
+function updateHomeActions() {
+  const canGoBack = Boolean(state.nav.fase);
+  els.homeBackBtn.classList.toggle('hidden', !canGoBack);
 
-    const meta = document.createElement('p');
-    meta.className = 'aula-meta';
-    meta.textContent = `${aula.totalVideos || 0} videos transcritos`;
+  if (!state.nav.fase) {
+    els.openAddAulaBtn.classList.add('hidden');
+    return;
+  }
 
-    const actions = document.createElement('div');
-    actions.className = 'aula-actions';
+  els.openAddAulaBtn.classList.remove('hidden');
 
-    const estudarBtn = document.createElement('button');
-    estudarBtn.className = 'btn btn-primary';
-    estudarBtn.type = 'button';
-    estudarBtn.textContent = 'Estudar';
-    estudarBtn.addEventListener('click', () => openStudyView(aula.nome));
+  if (!state.nav.conteudo) {
+    els.openAddAulaBtn.textContent = '+ Novo Conteúdo';
+  } else {
+    els.openAddAulaBtn.textContent = '+ Adicionar Aula';
+  }
+}
 
-    const excluirBtn = document.createElement('button');
-    excluirBtn.className = 'btn btn-ghost';
-    excluirBtn.type = 'button';
-    excluirBtn.textContent = 'Excluir';
-    excluirBtn.addEventListener('click', () => handleDeleteAula(aula.nome));
+function createFaseCard(faseInfo) {
+  const card = document.createElement('article');
+  card.className = 'fase-card-clickable';
 
-    actions.append(estudarBtn, excluirBtn);
-    card.append(title, meta, actions);
-    els.aulasGrid.append(card);
+  const title = document.createElement('h3');
+  title.textContent = faseInfo.nome;
+
+  const status = document.createElement('p');
+  status.className = 'aula-meta';
+  status.textContent = faseInfo.liberada ? 'Liberada' : `Bloqueada ate ${faseInfo.dataLiberacao}`;
+
+  const totalConteudos = Array.isArray(faseInfo.conteudos) ? faseInfo.conteudos.length : 0;
+  const conteudosInfo = document.createElement('p');
+  conteudosInfo.className = 'aula-submeta';
+  conteudosInfo.textContent = `${totalConteudos} conteudos cadastrados`;
+
+  const button = document.createElement('button');
+  button.className = 'btn btn-primary';
+  button.type = 'button';
+  button.textContent = 'Entrar na fase';
+  button.addEventListener('click', () => {
+    state.nav.fase = faseInfo.nome;
+    state.nav.conteudo = null;
+    renderHomePanel();
+  });
+
+  card.append(title, status, conteudosInfo, button);
+  return card;
+}
+
+function createConteudoCard(conteudo) {
+  const card = document.createElement('article');
+  card.className = 'aula-card';
+
+  const title = document.createElement('h3');
+  title.textContent = conteudo.nome;
+
+  const aulasInfo = document.createElement('p');
+  aulasInfo.className = 'aula-meta';
+  aulasInfo.textContent = `${conteudo.totalAulas || 0} aulas`;
+
+  const videosInfo = document.createElement('p');
+  videosInfo.className = 'aula-submeta';
+  videosInfo.textContent = `${conteudo.totalVideos || 0} videos transcritos`;
+
+  const button = document.createElement('button');
+  button.className = 'btn btn-primary';
+  button.type = 'button';
+  button.textContent = 'Abrir conteúdo';
+  button.addEventListener('click', () => {
+    state.nav.conteudo = conteudo.nome;
+    renderHomePanel();
+  });
+
+  card.append(title, aulasInfo, videosInfo, button);
+  return card;
+}
+
+function createAulaCard(aula) {
+  const card = document.createElement('article');
+  card.className = 'aula-card';
+
+  const title = document.createElement('h3');
+  title.textContent = aula.nome;
+
+  const meta = document.createElement('p');
+  meta.className = 'aula-meta';
+  meta.textContent = `${aula.totalVideos || 0} videos transcritos`;
+
+  const actions = document.createElement('div');
+  actions.className = 'aula-actions';
+
+  const estudarBtn = document.createElement('button');
+  estudarBtn.className = 'btn btn-primary';
+  estudarBtn.type = 'button';
+  estudarBtn.textContent = 'Estudar';
+  estudarBtn.disabled = !aula.liberada;
+
+  if (!aula.liberada) {
+    estudarBtn.textContent = `Bloqueada ate ${aula.dataLiberacao}`;
+    estudarBtn.classList.add('btn-locked');
+  } else {
+    estudarBtn.addEventListener('click', () => openStudyView(aula));
+  }
+
+  const excluirBtn = document.createElement('button');
+  excluirBtn.className = 'btn btn-ghost';
+  excluirBtn.type = 'button';
+  excluirBtn.textContent = 'Excluir';
+  excluirBtn.addEventListener('click', () => handleDeleteAula(aula));
+
+  actions.append(estudarBtn, excluirBtn);
+  card.append(title, meta, actions);
+
+  return card;
+}
+
+function renderHomePanel() {
+  els.aulasGrid.innerHTML = '';
+  updateHomeHeader();
+  updateHomeActions();
+
+  if (!state.nav.fase) {
+    const fases = Array.isArray(state.fases) ? state.fases : [];
+    els.aulasEmptyState.classList.toggle('hidden', fases.length > 0);
+
+    fases.forEach((faseInfo) => {
+      els.aulasGrid.append(createFaseCard(faseInfo));
+    });
+
+    return;
+  }
+
+  if (!state.nav.conteudo) {
+    const conteudos = getConteudosDaFaseAtual();
+    els.aulasEmptyState.classList.toggle('hidden', conteudos.length > 0);
+
+    if (!conteudos.length) {
+      els.aulasEmptyState.querySelector('h2').textContent = 'Nenhum conteúdo nesta fase';
+      els.aulasEmptyState.querySelector('p').textContent =
+        'Clique em "+ Novo Conteúdo" para começar a organizar esta fase.';
+      return;
+    }
+
+    els.aulasEmptyState.querySelector('h2').textContent = 'Nenhuma aula cadastrada';
+    els.aulasEmptyState.querySelector('p').textContent =
+      'Adicione sua primeira aula para começar a estudar com IA.';
+
+    conteudos.forEach((conteudo) => {
+      els.aulasGrid.append(createConteudoCard(conteudo));
+    });
+
+    return;
+  }
+
+  const aulas = getAulasDaNavegacaoAtual();
+  els.aulasEmptyState.classList.toggle('hidden', aulas.length > 0);
+
+  if (!aulas.length) {
+    els.aulasEmptyState.querySelector('h2').textContent = 'Nenhuma aula neste conteúdo';
+    els.aulasEmptyState.querySelector('p').textContent =
+      'Clique em "+ Adicionar Aula" para cadastrar a primeira aula deste conteúdo.';
+    return;
+  }
+
+  els.aulasEmptyState.querySelector('h2').textContent = 'Nenhuma aula cadastrada';
+  els.aulasEmptyState.querySelector('p').textContent =
+    'Adicione sua primeira aula para começar a estudar com IA.';
+
+  aulas.forEach((aula) => {
+    els.aulasGrid.append(createAulaCard(aula));
   });
 }
 
 async function loadAulas() {
   const data = await apiRequest('/api/aulas');
   state.aulas = Array.isArray(data.aulas) ? data.aulas : [];
-  renderAulas();
+  state.fases = Array.isArray(data.fases) ? data.fases : [];
+
+  if (state.nav.fase && !state.fases.find((fase) => fase.nome === state.nav.fase)) {
+    state.nav.fase = null;
+    state.nav.conteudo = null;
+  }
+
+  if (
+    state.nav.fase &&
+    state.nav.conteudo &&
+    !getConteudosDaFaseAtual().find((conteudo) => conteudo.nome === state.nav.conteudo)
+  ) {
+    state.nav.conteudo = null;
+  }
+
+  renderHomePanel();
 }
 
 function resetResultadosPlaceholder() {
@@ -141,14 +354,25 @@ function resetModeSelection() {
   resetResultadosPlaceholder();
 }
 
-function openStudyView(nomeAula) {
-  state.currentAula = nomeAula;
-  els.estudoAulaNome.textContent = nomeAula;
+function openStudyView(aula) {
+  state.currentAula = aula;
+  const titulo = [aula.nome, aula.fase, aula.conteudoGeral].filter(Boolean).join(' • ');
+  els.estudoAulaNome.textContent = titulo || aula.nome;
   resetModeSelection();
   setView('study');
 }
 
+function updateAddAulaContext() {
+  if (!state.nav.fase || !state.nav.conteudo) {
+    els.addAulaContext.textContent = 'Fase e conteúdo não selecionados';
+    return;
+  }
+
+  els.addAulaContext.textContent = `${state.nav.fase} • ${state.nav.conteudo}`;
+}
+
 function showModal() {
+  updateAddAulaContext();
   els.addAulaModal.classList.remove('hidden');
   els.addAulaModal.setAttribute('aria-hidden', 'false');
 }
@@ -160,10 +384,69 @@ function closeModal() {
 
 function clearAddAulaForm() {
   els.addAulaForm.reset();
+  updateAddAulaContext();
   els.aulaArquivoName.textContent = 'Nenhum arquivo escolhido';
   els.videosContainer.innerHTML = '';
   addVideoItem();
   setSalvarAulaLoading(false);
+}
+
+async function handleCreateConteudo() {
+  if (!state.nav.fase || state.nav.conteudo) {
+    return;
+  }
+
+  const nomeConteudo = window.prompt('Digite o nome do novo conteúdo geral:');
+  const nomeLimpo = String(nomeConteudo || '').trim();
+
+  if (!nomeLimpo) {
+    return;
+  }
+
+  try {
+    setGlobalLoader(true, 'Criando conteúdo...');
+    await apiRequest('/api/conteudos', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        fase: state.nav.fase,
+        nomeConteudo: nomeLimpo,
+      }),
+    });
+
+    await loadAulas();
+  } catch (error) {
+    window.alert(error.message);
+  } finally {
+    setGlobalLoader(false);
+  }
+}
+
+function handlePrimaryHomeAction() {
+  if (!state.nav.fase) {
+    return;
+  }
+
+  if (!state.nav.conteudo) {
+    handleCreateConteudo();
+    return;
+  }
+
+  clearAddAulaForm();
+  showModal();
+}
+
+function handleHomeBackNavigation() {
+  if (state.nav.conteudo) {
+    state.nav.conteudo = null;
+    renderHomePanel();
+    return;
+  }
+
+  state.nav.fase = null;
+  renderHomePanel();
 }
 
 function addVideoItem(initialValues = {}) {
@@ -210,15 +493,30 @@ function collectVideosFromForm() {
     .filter((video) => video.texto || video.arquivo);
 }
 
-async function handleDeleteAula(nomeAula) {
+async function handleDeleteAula(aula) {
+  const nomeAula = typeof aula === 'string' ? aula : aula.nome;
+  const fase = typeof aula === 'string' ? '' : aula.fase;
+  const conteudoGeral = typeof aula === 'string' ? '' : aula.conteudoGeral;
+
   const confirmed = window.confirm(`Deseja realmente excluir a aula '${nomeAula}'?`);
   if (!confirmed) {
     return;
   }
 
+  const query = new URLSearchParams();
+  if (fase) {
+    query.set('fase', fase);
+  }
+
+  if (conteudoGeral) {
+    query.set('conteudoGeral', conteudoGeral);
+  }
+
+  const querySuffix = query.toString() ? `?${query.toString()}` : '';
+
   try {
     setGlobalLoader(true, 'Excluindo aula...');
-    await apiRequest(`/api/aulas/${encodeURIComponent(nomeAula)}`, {
+    await apiRequest(`/api/aulas/${encodeURIComponent(nomeAula)}${querySuffix}`, {
       method: 'DELETE',
     });
     await loadAulas();
@@ -232,9 +530,16 @@ async function handleDeleteAula(nomeAula) {
 async function handleSubmitAddAula(event) {
   event.preventDefault();
 
+  const fase = String(state.nav.fase || '').trim();
+  const conteudoGeral = String(state.nav.conteudo || '').trim();
   const nomeAula = els.nomeAulaInput.value.trim();
   const aulaArquivo = els.aulaArquivoInput.files[0] || null;
   const videos = collectVideosFromForm();
+
+  if (!fase || !conteudoGeral) {
+    window.alert('Selecione fase e conteúdo antes de adicionar a aula.');
+    return;
+  }
 
   if (!nomeAula) {
     window.alert('Informe o nome da aula.');
@@ -261,6 +566,8 @@ async function handleSubmitAddAula(event) {
   }
 
   const payload = new FormData();
+  payload.append('fase', fase);
+  payload.append('conteudoGeral', conteudoGeral);
   payload.append('nomeAula', nomeAula);
   payload.append('aulaArquivo', aulaArquivo);
 
@@ -670,14 +977,14 @@ async function callGemini({ modo, aula, tema }) {
 }
 
 async function handleGerarModo(modo) {
-  if (!state.currentAula) {
+  if (!state.currentAula?.caminho) {
     window.alert('Nenhuma aula selecionada.');
     return;
   }
 
   try {
     setGlobalLoader(true, 'Gerando resposta com Gemini...');
-    const resposta = await callGemini({ modo, aula: state.currentAula });
+    const resposta = await callGemini({ modo, aula: state.currentAula.caminho });
 
     if (modo === 'mapa mental') {
       renderMindMap(resposta);
@@ -723,10 +1030,8 @@ function onSelectMode(modo) {
 }
 
 function bindEvents() {
-  els.openAddAulaBtn.addEventListener('click', () => {
-    clearAddAulaForm();
-    showModal();
-  });
+  els.openAddAulaBtn.addEventListener('click', handlePrimaryHomeAction);
+  els.homeBackBtn.addEventListener('click', handleHomeBackNavigation);
 
   els.closeAddAulaBtn.addEventListener('click', closeModal);
   els.cancelAddAulaBtn.addEventListener('click', closeModal);

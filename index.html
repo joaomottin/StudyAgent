@@ -17,12 +17,15 @@
       <section id="view-home" class="view active" aria-label="Painel de aulas">
         <header class="page-header">
           <div>
-            <p class="eyebrow">Organize. Aprenda. Revise.</p>
-            <h1>Seu Painel de Aulas</h1>
+            <p id="homeEyebrow" class="eyebrow">Organize. Aprenda. Revise.</p>
+            <h1 id="homeTitle">Suas Fases</h1>
           </div>
-          <button id="openAddAulaBtn" class="btn btn-primary" type="button">
-            + Adicionar Aula
-          </button>
+          <div class="page-header-actions">
+            <button id="homeBackBtn" class="btn btn-ghost hidden" type="button">Voltar</button>
+            <button id="openAddAulaBtn" class="btn btn-primary hidden" type="button">
+              + Novo Conteúdo
+            </button>
+          </div>
         </header>
 
         <main>
@@ -78,6 +81,11 @@
         </header>
 
         <form id="addAulaForm" class="modal-form" novalidate>
+          <div class="field-group">
+            <span>Contexto atual</span>
+            <p id="addAulaContext" class="context-pill">Fase e conteúdo não selecionados</p>
+          </div>
+
           <label class="field-group">
             <span>Nome da Aula</span>
             <input

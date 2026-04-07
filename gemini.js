@@ -541,9 +541,11 @@ async function gerarFlashcards({ aula, aulasDir }) {
   return parseFlashcards(raw);
 }
 
-async function gerarBuscaPorTema({ tema, aulasDir }) {
+async function gerarBuscaPorTema({ tema, aulasDir, aulasPermitidas }) {
   const temaLimpo = ensureTema(tema);
-  const aulas = await readAllAulas(aulasDir);
+  const aulas = await readAllAulas(aulasDir, {
+    allowedPaths: Array.isArray(aulasPermitidas) ? aulasPermitidas : null,
+  });
 
   if (aulas.length === 0) {
     throw new Error('Nenhuma aula encontrada para realizar a busca.');
@@ -563,7 +565,7 @@ async function gerarBuscaPorTema({ tema, aulasDir }) {
   return callGeminiApi(prompt, { cacheKey });
 }
 
-async function gerarRespostaGemini({ modo, aula, tema, aulasDir }) {
+async function gerarRespostaGemini({ modo, aula, tema, aulasDir, aulasPermitidas }) {
   const normalizedMode = normalizeMode(modo);
 
   if (normalizedMode === 'resumo') {
@@ -583,7 +585,7 @@ async function gerarRespostaGemini({ modo, aula, tema, aulasDir }) {
     normalizedMode === 'busca por tema' ||
     normalizedMode === 'tema'
   ) {
-    return gerarBuscaPorTema({ tema, aulasDir });
+    return gerarBuscaPorTema({ tema, aulasDir, aulasPermitidas });
   }
 
   throw new Error(

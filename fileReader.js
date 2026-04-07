@@ -346,12 +346,16 @@ function buildAulaCombinedText(nomeAula, materialText, videosText) {
   return blocks.join('\n\n');
 }
 
-async function listAulas(baseDir) {
-  if (!(await pathExists(baseDir))) {
+function normalizePortablePath(value) {
+  return String(value || '').replace(/\\/g, '/');
+}
+
+async function listSubdirectories(dirPath) {
+  if (!(await pathExists(dirPath))) {
     return [];
   }
 
-  const entries = await fs.readdir(baseDir, { withFileTypes: true });
+  const entries = await fs.readdir(dirPath, { withFileTypes: true });
 
   return entries
     .filter((entry) => entry.isDirectory())
@@ -359,11 +363,98 @@ async function listAulas(baseDir) {
     .sort((a, b) => a.localeCompare(b, 'pt-BR'));
 }
 
+async function listAulas(baseDir) {
+  if (!(await pathExists(baseDir))) {
+    return [];
+  }
+
+  const topLevelDirs = await listSubdirectories(baseDir);
+  const aulas = [];
+
+  for (const topLevelName of topLevelDirs) {
+    const topLevelPath = path.join(baseDir, topLevelName);
+    const isFaseDir = /^fase\s*\d+/i.test(topLevelName);
+
+    if (!isFaseDir) {
+      if (await pathExists(path.join(topLevelPath, 'ATranscritos'))) {
+        aulas.push({
+          nome: topLevelName,
+          caminho: topLevelName,
+          fase: null,
+          conteudoGeral: null,
+        });
+      }
+
+      continue;
+    }
+
+    const conteudos = await listSubdirectories(topLevelPath);
+
+    for (const conteudoGeral of conteudos) {
+      const conteudoPath = path.join(topLevelPath, conteudoGeral);
+      const nomesAulas = await listSubdirectories(conteudoPath);
+
+      for (const nomeAula of nomesAulas) {
+        const aulaPath = path.join(conteudoPath, nomeAula);
+
+        if (!(await pathExists(path.join(aulaPath, 'ATranscritos')))) {
+          continue;
+        }
+
+        aulas.push({
+          nome: nomeAula,
+          caminho: normalizePortablePath(path.join(topLevelName, conteudoGeral, nomeAula)),
+          fase: topLevelName,
+          conteudoGeral,
+        });
+      }
+    }
+  }
+
+  aulas.sort((a, b) => String(a.caminho || '').localeCompare(String(b.caminho || ''), 'pt-BR'));
+  return aulas;
+}
+
 async function readAulaByName(baseDir, nomeAula) {
-  const aulaDir = path.join(baseDir, nomeAula);
+  const aulaIdentifier = normalizePortablePath(String(nomeAula || '').trim());
+
+  if (!aulaIdentifier) {
+    throw new Error('Nome da aula nao informado.');
+  }
+
+  const parts = aulaIdentifier.split('/').filter(Boolean);
+  let aulaMeta = null;
+
+  if (parts.length >= 3) {
+    aulaMeta = {
+      nome: parts[parts.length - 1],
+      caminho: parts.join('/'),
+      fase: parts[0],
+      conteudoGeral: parts[1],
+    };
+  } else {
+    const catalogo = await listAulas(baseDir);
+    const matches = catalogo.filter(
+      (item) => item.nome === aulaIdentifier || item.caminho === aulaIdentifier
+    );
+
+    if (matches.length === 0) {
+      throw new Error(`Aula nao encontrada: ${aulaIdentifier}`);
+    }
+
+    if (matches.length > 1) {
+      throw new Error(
+        `Existem multiplas aulas com o nome '${aulaIdentifier}'. Informe o caminho completo Fase/Conteudo/Aula.`
+      );
+    }
+
+    aulaMeta = matches[0];
+  }
+
+  const aulaDir = path.join(baseDir, aulaMeta.caminho);
 
   if (!(await pathExists(aulaDir))) {
-    throw new Error(`Aula nao encontrada: ${nomeAula}`);
+    throw new Error(`Aula nao encontrada: ${aulaIdentifier}`);
   }
 
   const [material, videos, materialOriginal] = await Promise.all([
@@ -372,25 +463,37 @@ async function readAulaByName(baseDir, nomeAula) {
     readMaterialOriginalInfo(aulaDir),
   ]);
 
-  const jsonEstruturado = buildAulaJsonSchema(nomeAula, material.text, videos.text);
+  const jsonEstruturado = buildAulaJsonSchema(aulaMeta.nome, material.text, videos.text);
 
   return {
-    nome: nomeAula,
+    nome: aulaMeta.nome,
+    caminho: aulaMeta.caminho,
+    fase: aulaMeta.fase,
+    conteudoGeral: aulaMeta.conteudoGeral,
     material,
     materialOriginal,
     videos,
     jsonEstruturado,
     totalVideos: videos.files.length,
-    fullText: buildAulaCombinedText(nomeAula, material.text, videos.text),
+    fullText: buildAulaCombinedText(aulaMeta.nome, material.text, videos.text),
   };
 }
 
-async function readAllAulas(baseDir) {
+async function readAllAulas(baseDir, options = {}) {
   const aulas = await listAulas(baseDir);
+  const allowedPaths = Array.isArray(options.allowedPaths) ? options.allowedPaths : null;
+  const allowedSet =
+    allowedPaths && allowedPaths.length
+      ? new Set(allowedPaths.map((item) => normalizePortablePath(item).trim()).filter(Boolean))
+      : null;
 
   const result = [];
-  for (const nomeAula of aulas) {
-    const aula = await readAulaByName(baseDir, nomeAula);
+  for (const aulaMeta of aulas) {
+    if (allowedSet && !allowedSet.has(normalizePortablePath(aulaMeta.caminho).trim())) {
+      continue;
+    }
+
+    const aula = await readAulaByName(baseDir, aulaMeta.caminho);
     result.push(aula);
   }
 
