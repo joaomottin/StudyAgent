@@ -41,6 +41,7 @@ const els = {
   addAulaForm: document.getElementById('addAulaForm'),
   addAulaContext: document.getElementById('addAulaContext'),
   nomeAulaInput: document.getElementById('nomeAulaInput'),
+  pdfUploadField: document.getElementById('pdfUploadField'),
   aulaArquivoBtn: document.getElementById('aulaArquivoBtn'),
   aulaArquivoName: document.getElementById('aulaArquivoName'),
   aulaArquivoInput: document.getElementById('aulaArquivoInput'),
@@ -482,9 +483,76 @@ function clearAddAulaForm() {
   els.addAulaForm.reset();
   updateAddAulaContext();
   els.aulaArquivoName.textContent = 'Nenhum arquivo escolhido';
+  els.pdfUploadField?.classList.remove('is-dragover');
   els.videosContainer.innerHTML = '';
   addVideoItem();
   setSalvarAulaLoading(false);
+}
+
+function isPdfFile(file) {
+  if (!file) {
+    return false;
+  }
+
+  const mimeType = String(file.type || '').toLowerCase();
+  const fileName = String(file.name || '').toLowerCase();
+
+  return mimeType === 'application/pdf' || fileName.endsWith('.pdf');
+}
+
+function setSelectedAulaArquivo(file) {
+  if (!file) {
+    els.aulaArquivoInput.value = '';
+    els.aulaArquivoName.textContent = 'Nenhum arquivo escolhido';
+    return true;
+  }
+
+  if (!isPdfFile(file)) {
+    window.alert('Envie apenas arquivo PDF na transcricao da aula.');
+    return false;
+  }
+
+  const transfer = new DataTransfer();
+  transfer.items.add(file);
+  els.aulaArquivoInput.files = transfer.files;
+  els.aulaArquivoName.textContent = file.name;
+  return true;
+}
+
+function bindPdfDropzoneEvents() {
+  const dropzone = els.pdfUploadField;
+
+  if (!dropzone) {
+    return;
+  }
+
+  const activateDropzone = (event) => {
+    event.preventDefault();
+    dropzone.classList.add('is-dragover');
+  };
+
+  const deactivateDropzone = (event) => {
+    event.preventDefault();
+    dropzone.classList.remove('is-dragover');
+  };
+
+  dropzone.addEventListener('dragenter', activateDropzone);
+  dropzone.addEventListener('dragover', activateDropzone);
+  dropzone.addEventListener('dragleave', deactivateDropzone);
+
+  dropzone.addEventListener('drop', (event) => {
+    event.preventDefault();
+    dropzone.classList.remove('is-dragover');
+
+    const files = Array.from(event.dataTransfer?.files || []);
+    const [file] = files;
+
+    if (!file) {
+      return;
+    }
+
+    setSelectedAulaArquivo(file);
+  });
 }
 
 async function handleCreateConteudo() {
@@ -1201,10 +1269,20 @@ function bindEvents() {
     }
   });
 
+  bindPdfDropzoneEvents();
+
   els.aulaArquivoBtn.addEventListener('click', () => els.aulaArquivoInput.click());
   els.aulaArquivoInput.addEventListener('change', () => {
     const file = els.aulaArquivoInput.files[0];
-    els.aulaArquivoName.textContent = file ? file.name : 'Nenhum arquivo escolhido';
+
+    if (!file) {
+      setSelectedAulaArquivo(null);
+      return;
+    }
+
+    if (!setSelectedAulaArquivo(file)) {
+      setSelectedAulaArquivo(null);
+    }
   });
 
   els.addVideoBtn.addEventListener('click', () => addVideoItem());

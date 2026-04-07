@@ -633,6 +633,14 @@ input[type='file'] {
   align-items: center;
   text-align: center;
   gap: 10px;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.pdf-upload-field.is-dragover {
+  border-color: rgba(255, 124, 196, 0.95);
+  background: rgba(233, 30, 140, 0.15);
+  box-shadow: 0 0 0 3px rgba(233, 30, 140, 0.2);
 }
 
 .upload-control {
