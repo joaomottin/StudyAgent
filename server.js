@@ -19,6 +19,8 @@ const FASES_CONFIG = [
   { numero: 4, nome: 'Fase 4', mesLiberacao: 9, diaLiberacao: 6 },
   { numero: 5, nome: 'Fase 5', mesLiberacao: 11, diaLiberacao: 6 },
 ];
+const MAX_CONTEUDOS_POR_FASE = 5;
+const FASES_INDEX = new Map(FASES_CONFIG.map((fase) => [fase.numero, fase]));
 
 if (!Number.isFinite(PORT) || PORT <= 0) {
   throw new Error('PORT invalida no .env. Use um numero inteiro positivo.');
@@ -47,12 +49,13 @@ function sanitizeName(value) {
 function normalizePhaseName(value) {
   const match = String(value || '').match(/(\d+)/);
   const numero = match ? Number(match[1]) : NaN;
+  const fase = FASES_INDEX.get(numero);
 
-  if (!Number.isInteger(numero) || numero < 1 || numero > 5) {
+  if (!Number.isInteger(numero) || !fase) {
     return '';
   }
 
-  return `Fase ${numero}`;
+  return fase.nome;
 }
 
 function normalizePortablePath(value) {
@@ -523,7 +526,17 @@ async function salvarConteudo(payload) {
     throw new Error('Conteudo invalido.');
   }
 
-  const destino = path.join(AULAS_DIR, faseNormalizada, nomeConteudo);
+  const faseDir = path.join(AULAS_DIR, faseNormalizada);
+  await fs.mkdir(faseDir, { recursive: true });
+
+  const conteudosExistentes = await listSubdirectories(faseDir);
+  const conteudoJaExiste = conteudosExistentes.includes(nomeConteudo);
+
+  if (!conteudoJaExiste && conteudosExistentes.length >= MAX_CONTEUDOS_POR_FASE) {
+    throw new Error(`Cada fase permite no maximo ${MAX_CONTEUDOS_POR_FASE} conteudos gerais.`);
+  }
+
+  const destino = path.join(faseDir, nomeConteudo);
   await fs.mkdir(destino, { recursive: true });
 
   return {
@@ -583,11 +596,24 @@ app.get('/api/aulas', async (req, res) => {
         nome: fase.nome,
         liberada: fase.liberada,
         dataLiberacao: fase.dataLiberacao,
+        limiteConteudos: MAX_CONTEUDOS_POR_FASE,
         conteudos: await listConteudosByFase(fase.nome),
       }))
     );
 
-    res.json({ aulas, fases });
+    const fasesComLimite = fases.map((fase) => ({
+      ...fase,
+      podeCriarConteudo: fase.conteudos.length < fase.limiteConteudos,
+    }));
+
+    res.json({
+      aulas,
+      fases: fasesComLimite,
+      limites: {
+        totalFases: FASES_CONFIG.length,
+        conteudosPorFase: MAX_CONTEUDOS_POR_FASE,
+      },
+    });
   } catch (error) {
     res.status(500).json({ erro: 'Nao foi possivel listar as aulas.' });
   }

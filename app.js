@@ -1,6 +1,12 @@
 const state = {
   aulas: [],
   fases: [],
+  limites: {
+    totalFases: 5,
+    conteudosPorFase: 5,
+  },
+  currentView: 'home',
+  isRestoringHistory: false,
   nav: {
     fase: null,
     conteudo: null,
@@ -72,11 +78,36 @@ function setSalvarAulaLoading(loading) {
 
 function setView(viewName) {
   const isHome = viewName === 'home';
+  state.currentView = isHome ? 'home' : 'study';
 
   els.viewHome.classList.toggle('hidden', !isHome);
   els.viewHome.classList.toggle('active', isHome);
   els.viewStudy.classList.toggle('hidden', isHome);
   els.viewStudy.classList.toggle('active', !isHome);
+}
+
+function buildHistoryStateSnapshot() {
+  return {
+    view: state.currentView,
+    fase: state.nav.fase,
+    conteudo: state.nav.conteudo,
+    aulaCaminho: state.currentAula?.caminho || null,
+  };
+}
+
+function persistHistoryState({ replace = false } = {}) {
+  if (state.isRestoringHistory) {
+    return;
+  }
+
+  const snapshot = buildHistoryStateSnapshot();
+
+  if (replace) {
+    window.history.replaceState(snapshot, '', window.location.pathname);
+    return;
+  }
+
+  window.history.pushState(snapshot, '', window.location.pathname);
 }
 
 async function apiRequest(url, options = {}) {
@@ -92,6 +123,22 @@ async function apiRequest(url, options = {}) {
 
 function getCurrentFaseInfo() {
   return state.fases.find((fase) => fase.nome === state.nav.fase) || null;
+}
+
+function getLimiteConteudosDaFaseAtual() {
+  const faseInfo = getCurrentFaseInfo();
+  const limiteDaFase = Number(faseInfo?.limiteConteudos);
+  const limiteGlobal = Number(state.limites?.conteudosPorFase);
+
+  if (Number.isInteger(limiteDaFase) && limiteDaFase > 0) {
+    return limiteDaFase;
+  }
+
+  if (Number.isInteger(limiteGlobal) && limiteGlobal > 0) {
+    return limiteGlobal;
+  }
+
+  return 5;
 }
 
 function getAulasDaNavegacaoAtual() {
@@ -132,6 +179,12 @@ function getConteudosDaFaseAtual() {
   return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 }
 
+function faseAtingiuLimiteConteudos() {
+  const conteudos = getConteudosDaFaseAtual();
+  const limite = getLimiteConteudosDaFaseAtual();
+  return conteudos.length >= limite;
+}
+
 function updateHomeHeader() {
   if (!state.nav.fase) {
     els.homeTitle.textContent = 'Suas Fases';
@@ -155,14 +208,22 @@ function updateHomeActions() {
 
   if (!state.nav.fase) {
     els.openAddAulaBtn.classList.add('hidden');
+    els.openAddAulaBtn.disabled = false;
     return;
   }
 
   els.openAddAulaBtn.classList.remove('hidden');
 
   if (!state.nav.conteudo) {
-    els.openAddAulaBtn.textContent = '+ Novo Conteúdo';
+    const limiteAtingido = faseAtingiuLimiteConteudos();
+    const limite = getLimiteConteudosDaFaseAtual();
+
+    els.openAddAulaBtn.disabled = limiteAtingido;
+    els.openAddAulaBtn.textContent = limiteAtingido
+      ? `Limite de ${limite} conteúdos atingido`
+      : '+ Novo Conteúdo';
   } else {
+    els.openAddAulaBtn.disabled = false;
     els.openAddAulaBtn.textContent = '+ Adicionar Aula';
   }
 }
@@ -179,9 +240,10 @@ function createFaseCard(faseInfo) {
   status.textContent = faseInfo.liberada ? 'Liberada' : `Bloqueada ate ${faseInfo.dataLiberacao}`;
 
   const totalConteudos = Array.isArray(faseInfo.conteudos) ? faseInfo.conteudos.length : 0;
+  const limiteConteudos = Number(faseInfo.limiteConteudos || state.limites.conteudosPorFase || 5);
   const conteudosInfo = document.createElement('p');
   conteudosInfo.className = 'aula-submeta';
-  conteudosInfo.textContent = `${totalConteudos} conteudos cadastrados`;
+  conteudosInfo.textContent = `${totalConteudos}/${limiteConteudos} conteudos cadastrados`;
 
   const button = document.createElement('button');
   button.className = 'btn btn-primary';
@@ -191,6 +253,7 @@ function createFaseCard(faseInfo) {
     state.nav.fase = faseInfo.nome;
     state.nav.conteudo = null;
     renderHomePanel();
+    persistHistoryState();
   });
 
   card.append(title, status, conteudosInfo, button);
@@ -219,6 +282,7 @@ function createConteudoCard(conteudo) {
   button.addEventListener('click', () => {
     state.nav.conteudo = conteudo.nome;
     renderHomePanel();
+    persistHistoryState();
   });
 
   card.append(title, aulasInfo, videosInfo, button);
@@ -325,6 +389,10 @@ async function loadAulas() {
   const data = await apiRequest('/api/aulas');
   state.aulas = Array.isArray(data.aulas) ? data.aulas : [];
   state.fases = Array.isArray(data.fases) ? data.fases : [];
+  state.limites = {
+    totalFases: Number(data?.limites?.totalFases || 5),
+    conteudosPorFase: Number(data?.limites?.conteudosPorFase || 5),
+  };
 
   if (state.nav.fase && !state.fases.find((fase) => fase.nome === state.nav.fase)) {
     state.nav.fase = null;
@@ -354,12 +422,17 @@ function resetModeSelection() {
   resetResultadosPlaceholder();
 }
 
-function openStudyView(aula) {
+function openStudyView(aula, options = {}) {
+  const { pushHistory = true } = options;
   state.currentAula = aula;
   const titulo = [aula.nome, aula.fase, aula.conteudoGeral].filter(Boolean).join(' • ');
   els.estudoAulaNome.textContent = titulo || aula.nome;
   resetModeSelection();
   setView('study');
+
+  if (pushHistory) {
+    persistHistoryState();
+  }
 }
 
 function updateAddAulaContext() {
@@ -393,6 +466,12 @@ function clearAddAulaForm() {
 
 async function handleCreateConteudo() {
   if (!state.nav.fase || state.nav.conteudo) {
+    return;
+  }
+
+  const limite = getLimiteConteudosDaFaseAtual();
+  if (faseAtingiuLimiteConteudos()) {
+    window.alert(`Esta fase ja atingiu o limite de ${limite} conteudos gerais.`);
     return;
   }
 
@@ -442,10 +521,46 @@ function handleHomeBackNavigation() {
   if (state.nav.conteudo) {
     state.nav.conteudo = null;
     renderHomePanel();
+    persistHistoryState();
     return;
   }
 
   state.nav.fase = null;
+  renderHomePanel();
+  persistHistoryState();
+}
+
+function applyHistoryState(snapshot) {
+  const view = snapshot?.view === 'study' ? 'study' : 'home';
+
+  state.nav.fase = typeof snapshot?.fase === 'string' ? snapshot.fase : null;
+  state.nav.conteudo = typeof snapshot?.conteudo === 'string' ? snapshot.conteudo : null;
+
+  if (state.nav.fase && !state.fases.find((fase) => fase.nome === state.nav.fase)) {
+    state.nav.fase = null;
+    state.nav.conteudo = null;
+  }
+
+  if (
+    state.nav.fase &&
+    state.nav.conteudo &&
+    !getConteudosDaFaseAtual().find((conteudo) => conteudo.nome === state.nav.conteudo)
+  ) {
+    state.nav.conteudo = null;
+  }
+
+  const aulaCaminho = typeof snapshot?.aulaCaminho === 'string' ? snapshot.aulaCaminho : '';
+
+  if (view === 'study' && aulaCaminho) {
+    const aula = state.aulas.find((item) => item.caminho === aulaCaminho);
+    if (aula) {
+      openStudyView(aula, { pushHistory: false });
+      return;
+    }
+  }
+
+  state.currentAula = null;
+  setView('home');
   renderHomePanel();
 }
 
@@ -1060,6 +1175,13 @@ function bindEvents() {
   els.voltarPainelBtn.addEventListener('click', () => {
     setView('home');
     state.currentAula = null;
+    persistHistoryState();
+  });
+
+  window.addEventListener('popstate', (event) => {
+    state.isRestoringHistory = true;
+    applyHistoryState(event.state || {});
+    state.isRestoringHistory = false;
   });
 
   els.modeButtons.forEach((btn) => {
@@ -1074,6 +1196,8 @@ async function init() {
   try {
     setGlobalLoader(true, 'Carregando aulas...');
     await loadAulas();
+    applyHistoryState(window.history.state || {});
+    persistHistoryState({ replace: true });
   } catch (error) {
     window.alert(error.message);
   } finally {
