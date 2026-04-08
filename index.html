@@ -29,6 +29,27 @@
         </header>
 
         <main>
+          <section id="fiapHomePanel" class="fiap-home-panel hidden" aria-live="polite">
+            <h2 id="fiapHomePanelTitle">Importação FIAP</h2>
+            <p id="fiapHomePanelDescription" class="section-tip">
+              Entre em uma fase para buscar conteúdos automaticamente na FIAP.
+            </p>
+
+            <label class="field-check" for="fiapHomeVisibleBrowserInput">
+              <input id="fiapHomeVisibleBrowserInput" type="checkbox" checked />
+              <span>Abrir navegador para login na FIAP (recomendado)</span>
+            </label>
+
+            <div class="fiap-home-cta-wrap">
+              <button id="fiapPesquisarConteudosBtn" class="btn btn-primary fiap-home-cta hidden" type="button">
+                Pesquisar conteúdo
+              </button>
+              <button id="fiapPesquisarAulasBtn" class="btn btn-primary fiap-home-cta hidden" type="button">
+                Pesquisar aulas
+              </button>
+            </div>
+          </section>
+
           <div id="aulasGrid" class="aulas-grid" aria-live="polite"></div>
           <div id="aulasEmptyState" class="empty-state hidden">
             <h2>Nenhuma aula cadastrada</h2>
@@ -96,6 +117,45 @@
               required
             />
           </label>
+
+          <section class="transcription-section fiap-import-section">
+            <div class="section-row">
+              <h3>Importar da FIAP</h3>
+            </div>
+            <p class="section-tip">
+              Liste as aulas disponíveis na FIAP e importe direto para esta fase/conteúdo.
+            </p>
+
+            <label class="field-group compact">
+              <span>URL da aula FIAP (opcional)</span>
+              <input
+                id="fiapUrlInput"
+                type="text"
+                placeholder="https://on.fiap.com.br/mod/conteudoshtml/view.php?..."
+              />
+            </label>
+
+            <label class="field-group compact">
+              <span>Aulas encontradas na FIAP</span>
+              <select id="fiapLessonsSelect" class="fiap-lessons-select">
+                <option value="">Nenhuma aula listada ainda</option>
+              </select>
+            </label>
+
+            <label class="field-check" for="fiapVisibleBrowserInput">
+              <input id="fiapVisibleBrowserInput" type="checkbox" checked />
+              <span>Abrir navegador para login na FIAP (recomendado no primeiro acesso)</span>
+            </label>
+
+            <div class="fiap-actions">
+              <button id="fiapListarBtn" class="btn btn-secondary" type="button">
+                Listar aulas FIAP
+              </button>
+              <button id="fiapImportarBtn" class="btn btn-primary" type="button">
+                Importar aula FIAP
+              </button>
+            </div>
+          </section>
 
           <section class="transcription-section pdf-upload-section">
             <h3>Transcrição da Aula (PDF)</h3>

@@ -112,6 +112,37 @@ body {
   width: 100%;
 }
 
+.fiap-home-panel {
+  width: min(1240px, 100%);
+  border: 1px solid rgba(233, 30, 140, 0.55);
+  border-radius: 16px;
+  padding: 18px;
+  background: linear-gradient(135deg, rgba(233, 30, 140, 0.1), rgba(124, 58, 237, 0.1));
+  display: grid;
+  gap: 12px;
+}
+
+.fiap-home-panel h2 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.fiap-home-cta-wrap {
+  display: grid;
+  gap: 10px;
+}
+
+.fiap-home-cta {
+  width: 100%;
+  min-height: 56px;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.fiap-home-cta-emphasis {
+  box-shadow: 0 0 0 4px rgba(233, 30, 140, 0.2), 0 14px 30px rgba(233, 30, 140, 0.38);
+}
+
 .btn,
 .mode-btn,
 .icon-btn {
@@ -612,6 +643,35 @@ input[type='file'] {
   align-items: stretch;
   justify-content: flex-start;
   gap: 12px;
+}
+
+.fiap-import-section .section-tip {
+  margin: 0;
+  color: var(--muted);
+}
+
+.fiap-lessons-select {
+  min-height: 46px;
+}
+
+.field-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #d8d8d8;
+  font-size: 0.9rem;
+}
+
+.field-check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.fiap-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .pdf-upload-section h3,

@@ -6,6 +6,7 @@ O sistema permite:
 - cadastrar aulas com transcrição principal e transcrições de vídeos;
 - salvar tudo em disco na pasta `aulas/`;
 - aceitar material da aula em `.txt` ou `.pdf` (com extração automática de texto);
+- importar aulas automaticamente da FIAP via scraping (HTML e PDF);
 - gerar conteúdo com IA em 4 modos:
   - Resumo
   - Mapa Mental
@@ -17,6 +18,7 @@ O sistema permite:
 - Backend: Node.js + Express + Multer + CORS + dotenv
 - Frontend: HTML, CSS e JavaScript puro
 - IA: Google Gemini API (`gemini-3.1-pro-preview`)
+- Scraping: Playwright (Chromium)
 - Persistência: arquivos `.txt` no disco
 
 ## Estrutura do projeto
@@ -77,6 +79,8 @@ GEMINI_MODEL=gemini-2.5-flash
 PORT=3000
 GEMINI_MAX_PDF_INLINE_BYTES=4500000
 GEMINI_CACHE_TTL_SECONDS=86400
+FIAP_USER=seu_usuario_fiap
+FIAP_PASS=sua_senha_fiap
 ```
 
 Observações:
@@ -85,6 +89,7 @@ Observações:
 - `GEMINI_MODEL` define qual modelo do Gemini sera utilizado.
 - `GEMINI_MAX_PDF_INLINE_BYTES` controla o tamanho maximo do PDF enviado no modo multimodal.
 - `GEMINI_CACHE_TTL_SECONDS` define por quantos segundos respostas do Gemini ficam em cache local.
+- `FIAP_USER` e `FIAP_PASS` sao usados pelo backend para autenticar no portal FIAP.
 
 ## Como executar
 
@@ -151,6 +156,49 @@ Retorna:
 {
   "resposta": "texto gerado pela IA"
 }
+
+### `POST /api/scrape-fiap/listar`
+Lista aulas disponiveis no portal FIAP autenticado.
+
+Payload opcional:
+
+```json
+{
+  "headless": true
+}
+```
+
+### `POST /api/scrape-fiap`
+Extrai uma aula FIAP (preview sem salvar no disco).
+
+Payload:
+
+```json
+{
+  "url": "https://on.fiap.com.br/mod/conteudoshtml/view.php?id=...",
+  "headless": true
+}
+```
+
+### `POST /api/scrape-fiap/importar`
+Extrai e salva a aula FIAP direto em `aulas/<Fase>/<Conteudo>/<NomeAula>`.
+
+Payload:
+
+```json
+{
+  "url": "https://on.fiap.com.br/mod/conteudospdf/view.php?c=...&id=...",
+  "fase": "Fase 1",
+  "conteudoGeral": "Análise exploratoria de dados",
+  "nomeAula": "Aula importada da FIAP",
+  "headless": true
+}
+```
+
+Observacoes sobre scraping FIAP:
+- o backend persiste sessao em `.fiap-session.json` para evitar login em toda execucao;
+- se a sessao expirar, o sistema usa `FIAP_USER`/`FIAP_PASS` para reautenticar;
+- em caso de MFA/CAPTCHA, pode ser necessario executar com `"headless": false`.
 ```
 
 ## Fluxo da interface

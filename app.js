@@ -11,6 +11,7 @@ const state = {
     fase: null,
     conteudo: null,
   },
+  fiapLessons: [],
   currentAula: null,
   currentMode: null,
   flashcards: {
@@ -26,6 +27,12 @@ const els = {
   homeTitle: document.getElementById('homeTitle'),
   homeEyebrow: document.getElementById('homeEyebrow'),
   homeBackBtn: document.getElementById('homeBackBtn'),
+  fiapHomePanel: document.getElementById('fiapHomePanel'),
+  fiapHomePanelTitle: document.getElementById('fiapHomePanelTitle'),
+  fiapHomePanelDescription: document.getElementById('fiapHomePanelDescription'),
+  fiapHomeVisibleBrowserInput: document.getElementById('fiapHomeVisibleBrowserInput'),
+  fiapPesquisarConteudosBtn: document.getElementById('fiapPesquisarConteudosBtn'),
+  fiapPesquisarAulasBtn: document.getElementById('fiapPesquisarAulasBtn'),
   aulasGrid: document.getElementById('aulasGrid'),
   aulasEmptyState: document.getElementById('aulasEmptyState'),
   estudoAulaNome: document.getElementById('estudoAulaNome'),
@@ -41,6 +48,11 @@ const els = {
   addAulaForm: document.getElementById('addAulaForm'),
   addAulaContext: document.getElementById('addAulaContext'),
   nomeAulaInput: document.getElementById('nomeAulaInput'),
+  fiapUrlInput: document.getElementById('fiapUrlInput'),
+  fiapLessonsSelect: document.getElementById('fiapLessonsSelect'),
+  fiapVisibleBrowserInput: document.getElementById('fiapVisibleBrowserInput'),
+  fiapListarBtn: document.getElementById('fiapListarBtn'),
+  fiapImportarBtn: document.getElementById('fiapImportarBtn'),
   pdfUploadField: document.getElementById('pdfUploadField'),
   aulaArquivoBtn: document.getElementById('aulaArquivoBtn'),
   aulaArquivoName: document.getElementById('aulaArquivoName'),
@@ -241,6 +253,161 @@ function updateHomeActions() {
   }
 }
 
+function getFiapHomeHeadlessOption() {
+  const abrirNavegador = Boolean(els.fiapHomeVisibleBrowserInput?.checked);
+  return !abrirNavegador;
+}
+
+function updateFiapHomePanel(aulasDoConteudo = []) {
+  if (!els.fiapHomePanel) {
+    return;
+  }
+
+  const faseSelecionada = String(state.nav.fase || '').trim();
+  const conteudoSelecionado = String(state.nav.conteudo || '').trim();
+  const faseLiberada = !faseSelecionada || isFaseLiberadaByName(faseSelecionada);
+
+  if (!faseSelecionada || !faseLiberada) {
+    els.fiapHomePanel.classList.add('hidden');
+    els.fiapPesquisarConteudosBtn?.classList.add('hidden');
+    els.fiapPesquisarAulasBtn?.classList.add('hidden');
+    return;
+  }
+
+  els.fiapHomePanel.classList.remove('hidden');
+
+  if (!conteudoSelecionado) {
+    els.fiapHomePanelTitle.textContent = `${faseSelecionada} • Scraping FIAP`;
+    els.fiapHomePanelDescription.textContent =
+      'Clique em "Pesquisar conteúdo" para trazer todos os conteúdos gerais da FIAP para esta fase.';
+
+    els.fiapPesquisarConteudosBtn?.classList.remove('hidden');
+    els.fiapPesquisarAulasBtn?.classList.add('hidden');
+    return;
+  }
+
+  const totalAulas = Array.isArray(aulasDoConteudo) ? aulasDoConteudo.length : 0;
+  els.fiapHomePanelTitle.textContent = `${conteudoSelecionado} • Scraping FIAP`;
+  els.fiapHomePanelDescription.textContent =
+    totalAulas > 0
+      ? 'Clique em "Pesquisar aulas" para sincronizar novas aulas deste conteúdo na FIAP.'
+      : 'Nenhuma aula encontrada neste conteúdo. Clique em "Pesquisar aulas" para importar tudo automaticamente.';
+
+  els.fiapPesquisarConteudosBtn?.classList.add('hidden');
+  els.fiapPesquisarAulasBtn?.classList.remove('hidden');
+  els.fiapPesquisarAulasBtn?.classList.toggle('fiap-home-cta-emphasis', totalAulas === 0);
+}
+
+async function handlePesquisarConteudosPorFase() {
+  const fase = String(state.nav.fase || '').trim();
+
+  if (!fase) {
+    window.alert('Selecione uma fase antes de pesquisar conteúdos.');
+    return;
+  }
+
+  try {
+    setGlobalLoader(true, 'Pesquisando conteúdos da FIAP...');
+
+    const data = await apiRequest('/api/scrape-fiap/conteudos', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        headless: getFiapHomeHeadlessOption(),
+      }),
+    });
+
+    const conteudos = Array.isArray(data?.conteudos) ? data.conteudos : [];
+
+    if (!conteudos.length) {
+      window.alert('Nenhum conteúdo FIAP encontrado para sua conta.');
+      return;
+    }
+
+    let processados = 0;
+    const falhas = [];
+
+    for (const conteudo of conteudos) {
+      try {
+        await apiRequest('/api/conteudos', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            fase,
+            nomeConteudo: conteudo.nome,
+          }),
+        });
+        processados += 1;
+      } catch (error) {
+        falhas.push(`${conteudo.nome}: ${error.message}`);
+      }
+    }
+
+    await loadAulas();
+
+    if (falhas.length) {
+      window.alert(
+        `Conteúdos sincronizados parcialmente. Processados: ${processados}. Falhas: ${falhas.length}.`
+      );
+      return;
+    }
+
+    window.alert(`Conteúdos sincronizados com sucesso: ${processados}.`);
+  } catch (error) {
+    window.alert(error.message);
+  } finally {
+    setGlobalLoader(false);
+  }
+}
+
+async function handlePesquisarAulasDoConteudo() {
+  const fase = String(state.nav.fase || '').trim();
+  const conteudoGeral = String(state.nav.conteudo || '').trim();
+
+  if (!fase || !conteudoGeral) {
+    window.alert('Entre em um conteúdo para pesquisar aulas.');
+    return;
+  }
+
+  try {
+    setGlobalLoader(true, `Pesquisando aulas de ${conteudoGeral} na FIAP...`);
+
+    const data = await apiRequest('/api/scrape-fiap/importar-conteudo', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        fase,
+        conteudoGeral,
+        headless: getFiapHomeHeadlessOption(),
+      }),
+    });
+
+    await loadAulas();
+
+    const totalImportadas = Array.isArray(data?.importadas) ? data.importadas.length : 0;
+    const totalFalhas = Array.isArray(data?.falhas) ? data.falhas.length : 0;
+
+    if (totalFalhas > 0) {
+      window.alert(
+        `Importação concluída com ressalvas. Importadas: ${totalImportadas}. Falhas: ${totalFalhas}.`
+      );
+      return;
+    }
+
+    window.alert(`Importação concluída. Aulas importadas: ${totalImportadas}.`);
+  } catch (error) {
+    window.alert(error.message);
+  } finally {
+    setGlobalLoader(false);
+  }
+}
+
 function createFaseCard(faseInfo) {
   const card = document.createElement('article');
   card.className = 'fase-card-clickable';
@@ -353,6 +520,7 @@ function renderHomePanel() {
   updateHomeActions();
 
   if (!state.nav.fase) {
+    updateFiapHomePanel();
     const fases = Array.isArray(state.fases) ? state.fases : [];
     els.aulasEmptyState.classList.toggle('hidden', fases.length > 0);
 
@@ -364,6 +532,7 @@ function renderHomePanel() {
   }
 
   if (!state.nav.conteudo) {
+    updateFiapHomePanel();
     const conteudos = getConteudosDaFaseAtual();
     els.aulasEmptyState.classList.toggle('hidden', conteudos.length > 0);
 
@@ -386,12 +555,13 @@ function renderHomePanel() {
   }
 
   const aulas = getAulasDaNavegacaoAtual();
+  updateFiapHomePanel(aulas);
   els.aulasEmptyState.classList.toggle('hidden', aulas.length > 0);
 
   if (!aulas.length) {
     els.aulasEmptyState.querySelector('h2').textContent = 'Nenhuma aula neste conteúdo';
     els.aulasEmptyState.querySelector('p').textContent =
-      'Clique em "+ Adicionar Aula" para cadastrar a primeira aula deste conteúdo.';
+      'Clique em "Pesquisar aulas" para importar todas as aulas deste conteúdo da FIAP.';
     return;
   }
 
@@ -482,6 +652,16 @@ function closeModal() {
 function clearAddAulaForm() {
   els.addAulaForm.reset();
   updateAddAulaContext();
+  state.fiapLessons = [];
+  if (els.fiapLessonsSelect) {
+    els.fiapLessonsSelect.innerHTML = '<option value="">Nenhuma aula listada ainda</option>';
+  }
+  if (els.fiapUrlInput) {
+    els.fiapUrlInput.value = '';
+  }
+  if (els.fiapVisibleBrowserInput) {
+    els.fiapVisibleBrowserInput.checked = true;
+  }
   els.aulaArquivoName.textContent = 'Nenhum arquivo escolhido';
   els.pdfUploadField?.classList.remove('is-dragover');
   els.videosContainer.innerHTML = '';
@@ -553,6 +733,125 @@ function bindPdfDropzoneEvents() {
 
     setSelectedAulaArquivo(file);
   });
+}
+
+function getFiapHeadlessOption() {
+  const abrirNavegador = Boolean(els.fiapVisibleBrowserInput?.checked);
+  return !abrirNavegador;
+}
+
+function setFiapLessons(lessons) {
+  state.fiapLessons = Array.isArray(lessons) ? lessons : [];
+
+  if (!els.fiapLessonsSelect) {
+    return;
+  }
+
+  els.fiapLessonsSelect.innerHTML = '';
+
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = state.fiapLessons.length
+    ? 'Selecione uma aula da FIAP'
+    : 'Nenhuma aula encontrada';
+  els.fiapLessonsSelect.append(placeholder);
+
+  state.fiapLessons.forEach((lesson, index) => {
+    const option = document.createElement('option');
+    option.value = lesson.url;
+
+    const tipo = String(lesson.tipo || 'html').toUpperCase();
+    const titulo = String(lesson.titulo || '').trim() || `Aula ${index + 1}`;
+    option.textContent = `[${tipo}] ${titulo}`;
+
+    els.fiapLessonsSelect.append(option);
+  });
+
+  if (state.fiapLessons.length && els.fiapUrlInput && !els.fiapUrlInput.value.trim()) {
+    els.fiapUrlInput.value = state.fiapLessons[0].url;
+    els.fiapLessonsSelect.value = state.fiapLessons[0].url;
+  }
+}
+
+async function handleListarAulasFiap() {
+  try {
+    setGlobalLoader(true, 'Listando aulas da FIAP...');
+
+    const response = await apiRequest('/api/scrape-fiap/listar', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        headless: getFiapHeadlessOption(),
+      }),
+    });
+
+    const aulas = Array.isArray(response?.aulas) ? response.aulas : [];
+    setFiapLessons(aulas);
+
+    if (!aulas.length) {
+      window.alert('Nenhuma aula da FIAP foi encontrada para a sua conta.');
+      return;
+    }
+
+    window.alert(`Foram encontradas ${aulas.length} aulas na FIAP.`);
+  } catch (error) {
+    window.alert(error.message);
+  } finally {
+    setGlobalLoader(false);
+  }
+}
+
+async function handleImportarAulaFiap() {
+  const fase = String(state.nav.fase || '').trim();
+  const conteudoGeral = String(state.nav.conteudo || '').trim();
+  const nomeAula = String(els.nomeAulaInput?.value || '').trim();
+  const urlSelecionada = String(els.fiapUrlInput?.value || els.fiapLessonsSelect?.value || '').trim();
+
+  if (!fase || !conteudoGeral) {
+    window.alert('Selecione fase e conteúdo antes de importar uma aula FIAP.');
+    return;
+  }
+
+  if (!urlSelecionada) {
+    window.alert('Informe ou selecione uma URL de aula da FIAP para importar.');
+    return;
+  }
+
+  try {
+    setGlobalLoader(true, 'Importando aula da FIAP...');
+
+    const body = {
+      url: urlSelecionada,
+      fase,
+      conteudoGeral,
+      headless: getFiapHeadlessOption(),
+    };
+
+    if (nomeAula) {
+      body.nomeAula = nomeAula;
+    }
+
+    const data = await apiRequest('/api/scrape-fiap/importar', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    closeModal();
+    clearAddAulaForm();
+    await loadAulas();
+
+    const nomeImportado = String(data?.aula?.nome || nomeAula || 'Aula da FIAP');
+    window.alert(`Importacao concluida: ${nomeImportado}`);
+  } catch (error) {
+    window.alert(error.message);
+  } finally {
+    setGlobalLoader(false);
+  }
 }
 
 async function handleCreateConteudo() {
@@ -1253,6 +1552,8 @@ function onSelectMode(modo) {
 function bindEvents() {
   els.openAddAulaBtn.addEventListener('click', handlePrimaryHomeAction);
   els.homeBackBtn.addEventListener('click', handleHomeBackNavigation);
+  els.fiapPesquisarConteudosBtn?.addEventListener('click', handlePesquisarConteudosPorFase);
+  els.fiapPesquisarAulasBtn?.addEventListener('click', handlePesquisarAulasDoConteudo);
 
   els.closeAddAulaBtn.addEventListener('click', closeModal);
   els.cancelAddAulaBtn.addEventListener('click', closeModal);
@@ -1270,6 +1571,16 @@ function bindEvents() {
   });
 
   bindPdfDropzoneEvents();
+
+  els.fiapListarBtn?.addEventListener('click', handleListarAulasFiap);
+  els.fiapImportarBtn?.addEventListener('click', handleImportarAulaFiap);
+  els.fiapLessonsSelect?.addEventListener('change', () => {
+    const selectedUrl = String(els.fiapLessonsSelect.value || '').trim();
+
+    if (selectedUrl && els.fiapUrlInput) {
+      els.fiapUrlInput.value = selectedUrl;
+    }
+  });
 
   els.aulaArquivoBtn.addEventListener('click', () => els.aulaArquivoInput.click());
   els.aulaArquivoInput.addEventListener('change', () => {
