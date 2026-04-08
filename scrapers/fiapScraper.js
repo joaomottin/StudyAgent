@@ -44,6 +44,16 @@ const TRANSCRIPT_BLOCK_SELECTORS = [
   '.captions',
 ];
 
+const EXCLUDED_LESSON_TITLE_PATTERNS = [
+  'welcome to data analytics',
+];
+
+const EXCLUDED_CONTENT_GROUP_NAME_PATTERNS = [
+  'welcome to data analytics',
+];
+
+const MIN_LESSONS_PER_CONTENT_DEFAULT = 4;
+
 function normalizeText(value) {
   return String(value || '').replace(/\r\n/g, '\n').replace(/\u00a0/g, ' ').trim();
 }
@@ -91,6 +101,36 @@ function normalizeComparableText(value) {
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function shouldExcludeLessonByTitle(title) {
+  const normalizedTitle = normalizeComparableText(title);
+
+  if (!normalizedTitle) {
+    return false;
+  }
+
+  return EXCLUDED_LESSON_TITLE_PATTERNS.some((pattern) => normalizedTitle.includes(pattern));
+}
+
+function shouldExcludeContentGroupByName(name) {
+  const normalizedName = normalizeComparableText(name);
+
+  if (!normalizedName) {
+    return false;
+  }
+
+  return EXCLUDED_CONTENT_GROUP_NAME_PATTERNS.some((pattern) => normalizedName.includes(pattern));
+}
+
+function resolveMinLessonsPerContent(value) {
+  const numeric = Number(value);
+
+  if (!Number.isInteger(numeric) || numeric < 1) {
+    return MIN_LESSONS_PER_CONTENT_DEFAULT;
+  }
+
+  return numeric;
 }
 
 function cleanSubtitleText(rawText) {
@@ -196,6 +236,10 @@ async function collectLessonLinks(page, dashboardUrl) {
     const absoluteUrl = resolveAbsoluteUrl(page.url(), item.href);
 
     if (!absoluteUrl) {
+      return;
+    }
+
+    if (shouldExcludeLessonByTitle(item.title)) {
       return;
     }
 
@@ -352,6 +396,11 @@ async function collectContentGroups(page, dashboardUrl) {
 
   rawGroups.forEach((group) => {
     const nome = normalizeText(group.nome) || 'Conteudo Geral';
+
+    if (shouldExcludeContentGroupByName(nome)) {
+      return;
+    }
+
     const aulasMap = new Map();
 
     (group.aulas || []).forEach((aula) => {
@@ -362,13 +411,18 @@ async function collectContentGroups(page, dashboardUrl) {
       }
 
       const flat = flatByUrl.get(url);
-      usedUrls.add(url);
-
       const tituloRaw = normalizeText(aula.titulo || '');
       const tituloFlat = normalizeText(flat?.titulo || '');
+      const tituloFinal = tituloRaw || tituloFlat || 'Aula FIAP';
+
+      if (shouldExcludeLessonByTitle(tituloFinal)) {
+        return;
+      }
+
+      usedUrls.add(url);
 
       aulasMap.set(url, {
-        titulo: tituloRaw || tituloFlat || 'Aula FIAP',
+        titulo: tituloFinal,
         url,
         tipo: normalizeLessonType(url),
       });
@@ -692,8 +746,12 @@ async function listarAulasFiap(options = {}) {
 }
 
 async function listarConteudosFiap(options = {}) {
+  const minLessonsPerContent = resolveMinLessonsPerContent(options.minLessonsPerContent);
+
   return withFiapSession(options, async (page) => {
-    return collectContentGroups(page, options.dashboardUrl || DASHBOARD_URL_PADRAO);
+    const groups = await collectContentGroups(page, options.dashboardUrl || DASHBOARD_URL_PADRAO);
+
+    return groups.filter((group) => Number(group?.totalAulas || 0) >= minLessonsPerContent);
   });
 }
 
