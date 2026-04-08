@@ -26,7 +26,11 @@ const FASES_CONFIG = [
   { numero: 5, nome: 'Fase 5', mesLiberacao: 11, diaLiberacao: 6 },
 ];
 const MAX_CONTEUDOS_POR_FASE = 5;
+const MIN_AULAS_POR_CONTEUDO_FIAP = 4;
 const FASES_INDEX = new Map(FASES_CONFIG.map((fase) => [fase.numero, fase]));
+const EXCLUDED_CONTENT_NAME_PATTERNS = [
+  'welcome to data analytics',
+];
 
 if (!Number.isFinite(PORT) || PORT <= 0) {
   throw new Error('PORT invalida no .env. Use um numero inteiro positivo.');
@@ -145,6 +149,16 @@ function normalizeComparableText(value) {
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function shouldExcludeContentName(value) {
+  const normalized = normalizeComparableText(value);
+
+  if (!normalized) {
+    return false;
+  }
+
+  return EXCLUDED_CONTENT_NAME_PATTERNS.some((pattern) => normalized.includes(pattern));
 }
 
 function extractFaseFromAulaIdentifier(aula) {
@@ -331,6 +345,10 @@ function parseCreateConteudoPayload(req) {
     throw new Error('Informe o nome do conteudo.');
   }
 
+  if (shouldExcludeContentName(nomeConteudo)) {
+    throw new Error('Conteudo de boas-vindas nao deve ser sincronizado.');
+  }
+
   return {
     fase,
     nomeConteudo,
@@ -351,6 +369,11 @@ function parseBooleanFlag(value, defaultValue = false) {
 }
 
 function buildFiapOptions(req) {
+  const requestedMin = Number(req.body?.minAulasPorConteudo);
+  const minLessonsPerContent = Number.isInteger(requestedMin) && requestedMin > 0
+    ? requestedMin
+    : MIN_AULAS_POR_CONTEUDO_FIAP;
+
   return {
     headless: parseBooleanFlag(req.body?.headless, true),
     loginUrl: String(req.body?.loginUrl || '').trim() || undefined,
@@ -358,6 +381,7 @@ function buildFiapOptions(req) {
     sessionFilePath: path.join(ROOT_DIR, '.fiap-session.json'),
     user: String(req.body?.fiapUser || '').trim() || undefined,
     password: String(req.body?.fiapPass || '').trim() || undefined,
+    minLessonsPerContent,
   };
 }
 
@@ -496,6 +520,10 @@ async function listConteudosByFase(faseNome) {
   const result = [];
 
   for (const nomeConteudo of conteudos) {
+    if (shouldExcludeContentName(nomeConteudo)) {
+      continue;
+    }
+
     const conteudoDir = path.join(faseDir, nomeConteudo);
     const nomesAulas = await listSubdirectories(conteudoDir);
     let totalAulas = 0;
@@ -559,6 +587,10 @@ async function listarAulas() {
     const conteudos = await listSubdirectories(faseDir);
 
     for (const conteudoGeral of conteudos) {
+      if (shouldExcludeContentName(conteudoGeral)) {
+        continue;
+      }
+
       const conteudoDir = path.join(faseDir, conteudoGeral);
       const nomesAulas = await listSubdirectories(conteudoDir);
 
@@ -663,6 +695,10 @@ async function salvarConteudo(payload) {
 
   if (!nomeConteudo) {
     throw new Error('Conteudo invalido.');
+  }
+
+  if (shouldExcludeContentName(nomeConteudo)) {
+    throw new Error('Conteudo de boas-vindas nao deve ser salvo.');
   }
 
   const faseDir = path.join(AULAS_DIR, faseNormalizada);
@@ -887,10 +923,13 @@ app.post('/api/scrape-fiap/listar', async (req, res) => {
 app.post('/api/scrape-fiap/conteudos', async (req, res) => {
   try {
     const fiapOptions = buildFiapOptions(req);
-    const conteudos = await listarConteudosFiap(fiapOptions);
+    const conteudos = (await listarConteudosFiap(fiapOptions)).filter(
+      (conteudo) => !shouldExcludeContentName(conteudo?.nome)
+    );
 
     return res.json({
       total: conteudos.length,
+      minAulasPorConteudo: fiapOptions.minLessonsPerContent,
       conteudos,
     });
   } catch (error) {
