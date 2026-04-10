@@ -151,6 +151,14 @@ function normalizeComparableText(value) {
     .trim();
 }
 
+function stripNumericSuffix(value) {
+  return String(value || '').replace(/\s+\(\d+\)\s*$/, '').trim();
+}
+
+function normalizeComparableLessonTitle(value) {
+  return normalizeComparableText(stripNumericSuffix(value));
+}
+
 function shouldExcludeContentName(value) {
   const normalized = normalizeComparableText(value);
 
@@ -1050,13 +1058,57 @@ app.post('/api/scrape-fiap/importar-conteudo', async (req, res) => {
       });
     }
 
-    const urls = (alvoFiap.aulas || []).map((item) => item.url).filter(Boolean);
-    const aulaTituloPorUrl = new Map(
-      (alvoFiap.aulas || []).map((item) => [
-        item.url,
-        sanitizeName(item.titulo || ''),
-      ])
-    );
+    const aulasFiap = Array.isArray(alvoFiap.aulas) ? alvoFiap.aulas : [];
+    const aulasPorChave = new Map();
+
+    aulasFiap.forEach((item) => {
+      const url = String(item?.url || '').trim();
+      if (!url) {
+        return;
+      }
+
+      const titulo = sanitizeName(item?.titulo || '');
+      const tipo = String(item?.tipo || '').toLowerCase();
+      const chave = normalizeComparableLessonTitle(titulo) || normalizeComparableText(url);
+
+      const atual = {
+        url,
+        titulo,
+        tipo,
+      };
+
+      if (!aulasPorChave.has(chave)) {
+        aulasPorChave.set(chave, atual);
+        return;
+      }
+
+      const anterior = aulasPorChave.get(chave);
+      const score = (candidate) => {
+        let value = 0;
+
+        if (candidate.tipo === 'html' || candidate.url.includes('/mod/conteudoshtml/')) {
+          value += 10;
+        }
+
+        if (candidate.tipo === 'pdf' || candidate.url.includes('/mod/conteudospdf/')) {
+          value += 1;
+        }
+
+        if (candidate.titulo) {
+          value += 2;
+        }
+
+        return value;
+      };
+
+      if (score(atual) > score(anterior)) {
+        aulasPorChave.set(chave, atual);
+      }
+    });
+
+    const aulasSelecionadas = Array.from(aulasPorChave.values());
+    const urls = aulasSelecionadas.map((item) => item.url).filter(Boolean);
+    const aulaTituloPorUrl = new Map(aulasSelecionadas.map((item) => [item.url, item.titulo]));
 
     if (!urls.length) {
       return res.status(400).json({
@@ -1069,12 +1121,23 @@ app.post('/api/scrape-fiap/importar-conteudo', async (req, res) => {
       urls,
     });
 
+    const nomesAulasExistentes = await listSubdirectories(
+      path.join(AULAS_DIR, payload.fase, payload.conteudoGeral)
+    );
+    const chavesExistentes = new Set(
+      nomesAulasExistentes
+        .map((nome) => normalizeComparableLessonTitle(nome))
+        .filter(Boolean)
+    );
+
     const importadas = [];
     const falhas = [];
+    const ignoradas = [];
 
     for (const item of resultadosLote) {
       if (!item.ok || !item.data) {
         falhas.push({
+          aula: aulaTituloPorUrl.get(item.url) || '',
           url: item.url,
           erro: item.erro || 'Falha ao extrair aula da FIAP.',
         });
@@ -1083,9 +1146,23 @@ app.post('/api/scrape-fiap/importar-conteudo', async (req, res) => {
 
       const result = item.data;
       const aulaTranscricao = normalizeLineBreaks(result.aulaTranscricao);
+      const nomeBase = sanitizeName(
+        aulaTituloPorUrl.get(item.url) || result.titulo || 'Aula FIAP'
+      ) || 'Aula FIAP';
+      const chaveAula = normalizeComparableLessonTitle(nomeBase);
+
+      if (chaveAula && chavesExistentes.has(chaveAula)) {
+        ignoradas.push({
+          aula: nomeBase,
+          url: item.url,
+          motivo: 'Aula ja existente neste conteudo.',
+        });
+        continue;
+      }
 
       if (!aulaTranscricao) {
         falhas.push({
+          aula: nomeBase,
           url: item.url,
           erro: 'Aula sem transcricao principal.',
         });
@@ -1095,7 +1172,7 @@ app.post('/api/scrape-fiap/importar-conteudo', async (req, res) => {
       const nomeAulaFinal = await buildUniqueAulaName(
         payload.fase,
         payload.conteudoGeral,
-        aulaTituloPorUrl.get(item.url) || result.titulo || 'Aula FIAP'
+        nomeBase
       );
 
       const videos = Array.isArray(result.videos)
@@ -1118,29 +1195,45 @@ app.post('/api/scrape-fiap/importar-conteudo', async (req, res) => {
           }
         : null;
 
-      await salvarAula({
-        fase: payload.fase,
-        conteudoGeral: payload.conteudoGeral,
-        nomeAula: nomeAulaFinal,
-        aulaTranscricao,
-        aulaArquivo,
-        aulaSourceType: result.tipo,
-        videos,
-      });
+      try {
+        await salvarAula({
+          fase: payload.fase,
+          conteudoGeral: payload.conteudoGeral,
+          nomeAula: nomeAulaFinal,
+          aulaTranscricao,
+          aulaArquivo,
+          aulaSourceType: result.tipo,
+          videos,
+        });
+      } catch (saveError) {
+        falhas.push({
+          aula: nomeAulaFinal,
+          url: item.url,
+          erro: saveError.message || 'Falha ao salvar aula importada.',
+        });
+        continue;
+      }
 
       importadas.push({
         nome: nomeAulaFinal,
         origemUrl: result.origemUrl,
         totalVideos: videos.length,
       });
+
+      if (chaveAula) {
+        chavesExistentes.add(chaveAula);
+      }
     }
 
     return res.status(201).json({
       mensagem: 'Importacao de conteudo FIAP concluida.',
       conteudoFiap: alvoFiap.nome,
+      totalAulasFiapOriginal: aulasFiap.length,
       totalAulasFiap: urls.length,
+      totalProcessadas: resultadosLote.length,
       importadas,
       falhas,
+      ignoradas,
     });
   } catch (error) {
     return res.status(400).json({ erro: error.message || 'Falha ao importar conteudo FIAP.' });
