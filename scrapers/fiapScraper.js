@@ -44,6 +44,41 @@ const TRANSCRIPT_BLOCK_SELECTORS = [
   '.captions',
 ];
 
+const TRANSCRIPT_HINT_PATTERN = /(transcri|legenda|caption|closed\s*caption|cc\b|materiais?)/i;
+const MIN_MAIN_TEXT_LENGTH = 180;
+const NON_LESSON_TEXT_PATTERNS = [
+  'foi removido do grupo da atividade',
+  'entregue se',
+  'conteudo digital',
+  'salavirtual',
+  'ambiente virtual',
+  'comunicados',
+  'cronograma',
+];
+
+const TRANSCRIPT_NOISE_LINE_PATTERNS = [
+  /^x$/i,
+  /^indice$/i,
+  /^lista de audios$/i,
+  /^lista de videos$/i,
+  /^configuracoes$/i,
+  /^voltar para a lista de conteudos$/i,
+  /^anterior$/i,
+  /^proximo$/i,
+  /^playlist$/i,
+  /^autoplay$/i,
+  /^transcricao$/i,
+  /^transcricoes$/i,
+  /^transcricoes e materiais$/i,
+  /^material complementar$/i,
+  /^em progresso$/i,
+  /^visualizado:\s*\d+%$/i,
+  /^video\s*\d+\s*de\s*\d+$/i,
+  /^\d+\s*de\s*\d+$/i,
+];
+
+const PDF_INVALID_STRUCTURE_PATTERN = /invalid\s+pdf\s+structure/i;
+
 const EXCLUDED_LESSON_TITLE_PATTERNS = [
   'welcome to data analytics',
 ];
@@ -101,6 +136,258 @@ function normalizeComparableText(value) {
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function isLessonUrl(url) {
+  return /\/mod\/conteudos(html|pdf)\//i.test(String(url || ''));
+}
+
+function isLikelyNonLessonText(value) {
+  const normalized = normalizeComparableText(value);
+
+  if (!normalized) {
+    return false;
+  }
+
+  return NON_LESSON_TEXT_PATTERNS.some((pattern) => normalized.includes(pattern));
+}
+
+function sanitizeTranscriptChunk(value) {
+  const lines = String(value || '').replace(/\r\n/g, '\n').split('\n');
+  const cleaned = lines
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => {
+      const normalized = normalizeComparableText(line);
+
+      if (!normalized) {
+        return false;
+      }
+
+      return !TRANSCRIPT_NOISE_LINE_PATTERNS.some((pattern) => pattern.test(normalized));
+    });
+
+  return normalizeText(cleaned.join('\n'));
+}
+
+function guessPdfFileName(url) {
+  try {
+    const parsed = new URL(String(url || ''));
+    const fileName = String(parsed.pathname || '').split('/').pop() || '';
+
+    if (/\.pdf$/i.test(fileName)) {
+      return fileName;
+    }
+  } catch (error) {
+    // fallback abaixo
+  }
+
+  return 'material.pdf';
+}
+
+async function getPageAndFrameTargets(page) {
+  const frames = page.frames().filter((frame) => frame !== page.mainFrame());
+  return [page.mainFrame(), ...frames];
+}
+
+async function clickTranscriptHintsInTarget(target) {
+  await target.evaluate((hintRegexSource) => {
+    const hintRegex = new RegExp(hintRegexSource, 'i');
+    const candidates = Array.from(
+      document.querySelectorAll(
+        'button, a, [role="button"], [role="tab"], .nav-link, .tablinks, [aria-controls], [data-toggle]'
+      )
+    );
+
+    candidates.forEach((node) => {
+      const text = String(node.textContent || node.getAttribute('aria-label') || '').trim();
+      const controls = String(node.getAttribute('aria-controls') || node.getAttribute('data-target') || '').trim();
+      const targetText = `${text} ${controls}`;
+
+      if (!hintRegex.test(targetText)) {
+        return;
+      }
+
+      const element = node;
+      const style = window.getComputedStyle(element);
+      const visible = style.display !== 'none' && style.visibility !== 'hidden';
+
+      if (!visible || element.hasAttribute('disabled')) {
+        return;
+      }
+
+      element.click();
+    });
+  }, TRANSCRIPT_HINT_PATTERN.source).catch(() => {});
+}
+
+async function clickTranscriptListItemsInTarget(target) {
+  await target.evaluate(() => {
+    const normalize = (value) =>
+      String(value || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const roots = Array.from(document.querySelectorAll('section, aside, div, article'))
+      .filter((node) => {
+        const text = normalize(node.textContent || '');
+        return text.includes('transcricoes') && text.includes('materiais');
+      })
+      .slice(0, 4);
+
+    const itemPattern = /(^#\d+)|(aula\s*\d)|(video\s*\d)/i;
+
+    roots.forEach((root) => {
+      const clickables = Array.from(root.querySelectorAll('button, a, [role="button"], [role="tab"], li, [tabindex]'))
+        .filter((node) => {
+          const text = String(node.textContent || '').trim();
+          return text.length > 3 && text.length < 140 && itemPattern.test(text);
+        })
+        .slice(0, 12);
+
+      clickables.forEach((node) => {
+        const element = node;
+        const style = window.getComputedStyle(element);
+        const visible = style.display !== 'none' && style.visibility !== 'hidden';
+
+        if (!visible || element.hasAttribute('disabled')) {
+          return;
+        }
+
+        element.click();
+      });
+    });
+  }).catch(() => {});
+}
+
+async function collectPanelTranscriptChunksFromTarget(target) {
+  const transcripts = await target.evaluate(() => {
+    const normalize = (value) =>
+      String(value || '')
+        .replace(/\r\n/g, '\n')
+        .replace(/\u00a0/g, ' ')
+        .trim();
+
+    const roots = Array.from(document.querySelectorAll('section, aside, div, article'))
+      .filter((node) => {
+        const text = String(node.textContent || '').toLowerCase();
+        return text.includes('transcri') && text.includes('material');
+      })
+      .slice(0, 4);
+
+    const chunks = [];
+
+    roots.forEach((root) => {
+      const nodes = Array.from(root.querySelectorAll('p, li, .text, .content, .description, [class*="transcri"], [id*="transcri"]'));
+
+      nodes.forEach((node) => {
+        const text = normalize(node.innerText || node.textContent || '');
+
+        if (text.length >= 80) {
+          chunks.push(text);
+        }
+      });
+    });
+
+    return chunks;
+  }).catch(() => []);
+
+  return uniqueValues(transcripts.map(normalizeText));
+}
+
+async function tryScrapePdfThenHtml(page, aulaUrl) {
+  try {
+    return await scrapePdfLesson(page, aulaUrl);
+  } catch (error) {
+    const message = String(error?.message || '');
+
+    if (
+      PDF_INVALID_STRUCTURE_PATTERN.test(message)
+      || message.includes('Nao foi possivel localizar o PDF')
+      || message.includes('Status 4')
+      || message.includes('Status 5')
+    ) {
+      return scrapeHtmlLesson(page, aulaUrl);
+    }
+
+    throw error;
+  }
+}
+
+async function collectTextCandidatesFromTarget(target) {
+  const chunks = await target.evaluate((selectors) => {
+    const collected = [];
+
+    selectors.forEach((selector) => {
+      const nodes = Array.from(document.querySelectorAll(selector));
+
+      nodes.forEach((node) => {
+        const text = String(node.innerText || '').trim();
+
+        if (text.length > 80) {
+          collected.push(text);
+        }
+      });
+    });
+
+    const bodyText = String(document.body?.innerText || '').trim();
+    if (bodyText.length > 80) {
+      collected.push(bodyText);
+    }
+
+    return collected;
+  }, MAIN_CONTENT_SELECTORS).catch(() => []);
+
+  return uniqueValues(chunks.map(normalizeText));
+}
+
+async function collectTranscriptBlocksFromTarget(target) {
+  const transcripts = await target.evaluate((selectors) => {
+    const chunks = [];
+
+    selectors.forEach((selector) => {
+      const nodes = Array.from(document.querySelectorAll(selector));
+
+      nodes.forEach((node) => {
+        const text = String(node.innerText || '').trim();
+        if (text.length > 40) {
+          chunks.push(text);
+        }
+      });
+    });
+
+    return chunks;
+  }, TRANSCRIPT_BLOCK_SELECTORS).catch(() => []);
+
+  return uniqueValues(transcripts.map(normalizeText));
+}
+
+async function collectSubtitleTrackUrlsFromTarget(target, pageUrl) {
+  const urls = await target.evaluate(() => {
+    const tracks = Array.from(document.querySelectorAll('track[src]')).map((track) => track.getAttribute('src'));
+    const anchors = Array.from(document.querySelectorAll('a[href]'))
+      .map((anchor) => anchor.getAttribute('href'))
+      .filter((href) => /\.(vtt|srt)(\?|$)/i.test(String(href || '')));
+
+    return [...tracks, ...anchors].filter(Boolean);
+  }).catch(() => []);
+
+  return uniqueValues(urls.map((url) => resolveAbsoluteUrl(pageUrl, url)));
+}
+
+async function assertOnLessonPage(page, aulaUrl) {
+  const currentUrl = String(page.url() || '');
+
+  if (isDashboardUrl(currentUrl)) {
+    throw new Error('A FIAP redirecionou para o dashboard. Refaça o login e tente novamente.');
+  }
+
+  if (!isLessonUrl(currentUrl) && !isLessonUrl(aulaUrl)) {
+    throw new Error('URL da aula FIAP invalida ou sem permissao de acesso.');
+  }
 }
 
 function shouldExcludeLessonByTitle(title) {
@@ -482,59 +769,70 @@ async function collectContentGroups(page, dashboardUrl) {
 }
 
 async function clickTranscriptToggles(page) {
-  for (const selector of TRANSCRIPT_TOGGLE_SELECTORS) {
-    const locator = page.locator(selector);
-    const count = await locator.count();
+  const targets = await getPageAndFrameTargets(page);
 
-    for (let index = 0; index < count; index += 1) {
-      await locator
-        .nth(index)
-        .click({ timeout: 1500 })
-        .catch(() => {});
+  for (const target of targets) {
+    for (const selector of TRANSCRIPT_TOGGLE_SELECTORS) {
+      const locator = target.locator(selector);
+      const count = await locator.count().catch(() => 0);
+
+      for (let index = 0; index < count; index += 1) {
+        await locator
+          .nth(index)
+          .click({ timeout: 1500 })
+          .catch(() => {});
+      }
     }
+
+    await clickTranscriptHintsInTarget(target);
+    await clickTranscriptListItemsInTarget(target);
   }
+
+  await page.waitForTimeout(500).catch(() => {});
 }
 
 async function readMainContent(page) {
-  const rawText = await page.evaluate((selectors) => {
-    for (const selector of selectors) {
-      const element = document.querySelector(selector);
+  const targets = await getPageAndFrameTargets(page);
+  const candidates = [];
 
-      if (!element) {
-        continue;
-      }
+  for (const target of targets) {
+    const chunks = await collectTextCandidatesFromTarget(target);
+    candidates.push(...chunks);
+  }
 
-      const text = String(element.innerText || '').trim();
-      if (text.length > 80) {
-        return text;
-      }
-    }
+  const validCandidates = candidates
+    .map(normalizeText)
+    .filter((chunk) => chunk.length >= MIN_MAIN_TEXT_LENGTH && !isLikelyNonLessonText(chunk));
 
-    return String(document.body?.innerText || '').trim();
-  }, MAIN_CONTENT_SELECTORS);
+  if (validCandidates.length > 0) {
+    return validCandidates.sort((a, b) => b.length - a.length)[0];
+  }
 
-  return normalizeText(rawText);
+  const fallback = candidates
+    .map(normalizeText)
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length)[0] || '';
+
+  return fallback;
 }
 
 async function readTranscriptBlocks(page) {
-  const transcripts = await page.evaluate((selectors) => {
-    const chunks = [];
+  const targets = await getPageAndFrameTargets(page);
+  const transcripts = [];
 
-    selectors.forEach((selector) => {
-      const nodes = Array.from(document.querySelectorAll(selector));
+  for (const target of targets) {
+    const chunks = await collectTranscriptBlocksFromTarget(target);
+    const panelChunks = await collectPanelTranscriptChunksFromTarget(target);
+    transcripts.push(...chunks);
+    transcripts.push(...panelChunks);
+  }
 
-      nodes.forEach((node) => {
-        const text = String(node.innerText || '').trim();
-        if (text.length > 40) {
-          chunks.push(text);
-        }
-      });
-    });
-
-    return chunks;
-  }, TRANSCRIPT_BLOCK_SELECTORS);
-
-  return uniqueValues(transcripts.map(normalizeText));
+  return uniqueValues(
+    transcripts
+      .map(sanitizeTranscriptChunk)
+      .filter((text) => text.length > 40)
+      .filter((text) => !isLikelyNonLessonText(text))
+  );
 }
 
 async function downloadSubtitleTracks(context, urls) {
@@ -583,8 +881,22 @@ async function scrapeHtmlLesson(page, aulaUrl) {
   page.on('response', onResponse);
 
   try {
-    await page.goto(aulaUrl, { waitUntil: 'networkidle' });
+    await page.goto(aulaUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
+    await assertOnLessonPage(page, aulaUrl);
+
+    const targets = await getPageAndFrameTargets(page);
+    for (const target of targets) {
+      const domSubtitleUrls = await collectSubtitleTrackUrlsFromTarget(target, page.url());
+      domSubtitleUrls.forEach((url) => subtitleUrlSet.add(url));
+    }
+
     await clickTranscriptToggles(page);
+
+    for (const target of targets) {
+      const domSubtitleUrls = await collectSubtitleTrackUrlsFromTarget(target, page.url());
+      domSubtitleUrls.forEach((url) => subtitleUrlSet.add(url));
+    }
 
     const titulo = normalizeText(
       await page.evaluate(() => {
@@ -597,12 +909,27 @@ async function scrapeHtmlLesson(page, aulaUrl) {
     const transcriptBlocks = await readTranscriptBlocks(page);
     const subtitleTracks = await downloadSubtitleTracks(page.context(), Array.from(subtitleUrlSet));
     const videosRaw = uniqueValues([...transcriptBlocks, ...subtitleTracks]);
+    const videosJoined = normalizeText(videosRaw.join('\n\n'));
 
-    if (!aulaTranscricao && videosRaw.length > 0) {
-      aulaTranscricao = videosRaw.join('\n\n');
+    if (videosJoined.length >= 240) {
+      aulaTranscricao = videosJoined;
     }
 
-    if (!aulaTranscricao) {
+    if (
+      videosRaw.length > 0
+      && (!aulaTranscricao || aulaTranscricao.length < MIN_MAIN_TEXT_LENGTH || isLikelyNonLessonText(aulaTranscricao))
+    ) {
+      aulaTranscricao = videosJoined;
+    }
+
+    const hasMainText = aulaTranscricao.length >= MIN_MAIN_TEXT_LENGTH && !isLikelyNonLessonText(aulaTranscricao);
+    const hasVideoTranscripts = videosRaw.length > 0;
+
+    if (!hasMainText && hasVideoTranscripts) {
+      aulaTranscricao = videosJoined;
+    }
+
+    if (!aulaTranscricao || isLikelyNonLessonText(aulaTranscricao) || (!hasMainText && !hasVideoTranscripts)) {
       throw new Error('Nao foi possivel extrair o conteudo da aula HTML na FIAP.');
     }
 
@@ -683,11 +1010,21 @@ async function scrapePdfLesson(page, aulaUrl) {
 
   try {
     await page.goto(aulaUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await assertOnLessonPage(page, aulaUrl);
 
     const domCandidates = await resolvePdfCandidates(page);
     domCandidates.forEach((url) => pdfUrlCandidates.add(url));
 
-    const pdfUrl = Array.from(pdfUrlCandidates)[0] || '';
+    let pdfUrl = Array.from(pdfUrlCandidates)[0] || '';
+
+    if (!pdfUrl) {
+      const fallbackResponse = await page.context().request.get(aulaUrl, { timeout: 30000 }).catch(() => null);
+      const fallbackContentType = String(fallbackResponse?.headers()['content-type'] || '').toLowerCase();
+
+      if (fallbackResponse?.ok() && fallbackContentType.includes('application/pdf')) {
+        pdfUrl = aulaUrl;
+      }
+    }
 
     if (!pdfUrl) {
       throw new Error('Nao foi possivel localizar o PDF da aula na pagina da FIAP.');
@@ -721,7 +1058,7 @@ async function scrapePdfLesson(page, aulaUrl) {
       origemUrl: aulaUrl,
       pdfUrl,
       pdfBuffer,
-      pdfFileName: 'material.pdf',
+      pdfFileName: guessPdfFileName(pdfUrl),
     };
   } finally {
     page.off('response', onResponse);
@@ -766,7 +1103,7 @@ async function scrapeAulaFiap(options = {}) {
     const tipo = normalizeLessonType(aulaUrl);
 
     if (tipo === 'pdf') {
-      return scrapePdfLesson(page, aulaUrl);
+      return tryScrapePdfThenHtml(page, aulaUrl);
     }
 
     return scrapeHtmlLesson(page, aulaUrl);
@@ -798,7 +1135,7 @@ async function scrapeAulasFiapEmLote(options = {}) {
       try {
         const tipo = normalizeLessonType(aulaUrl);
         const data = tipo === 'pdf'
-          ? await scrapePdfLesson(page, aulaUrl)
+          ? await tryScrapePdfThenHtml(page, aulaUrl)
           : await scrapeHtmlLesson(page, aulaUrl);
 
         results.push({
