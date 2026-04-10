@@ -159,9 +159,43 @@ function getLimiteConteudosDaFaseAtual() {
   return 5;
 }
 
+function stripNumericSuffix(value) {
+  return String(value || '').replace(/\s+\(\d+\)\s*$/, '').trim();
+}
+
 function getAulasDaNavegacaoAtual() {
-  return state.aulas.filter(
+  const aulasDoConteudo = state.aulas.filter(
     (aula) => aula.fase === state.nav.fase && aula.conteudoGeral === state.nav.conteudo
+  );
+
+  const aulasPorChave = new Map();
+
+  aulasDoConteudo.forEach((aula) => {
+    const chave = normalizeComparableText(stripNumericSuffix(aula.nome || '')) || String(aula.nome || '');
+
+    if (!aulasPorChave.has(chave)) {
+      aulasPorChave.set(chave, aula);
+      return;
+    }
+
+    const anterior = aulasPorChave.get(chave);
+    const videosAtual = Number(aula?.totalVideos || 0);
+    const videosAnterior = Number(anterior?.totalVideos || 0);
+    const atualComSufixo = /\(\d+\)\s*$/.test(String(aula?.nome || ''));
+    const anteriorComSufixo = /\(\d+\)\s*$/.test(String(anterior?.nome || ''));
+
+    if (videosAtual > videosAnterior) {
+      aulasPorChave.set(chave, aula);
+      return;
+    }
+
+    if (videosAtual === videosAnterior && anteriorComSufixo && !atualComSufixo) {
+      aulasPorChave.set(chave, aula);
+    }
+  });
+
+  return Array.from(aulasPorChave.values()).sort((a, b) =>
+    String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR')
   );
 }
 
@@ -392,15 +426,44 @@ async function handlePesquisarAulasDoConteudo() {
 
     const totalImportadas = Array.isArray(data?.importadas) ? data.importadas.length : 0;
     const totalFalhas = Array.isArray(data?.falhas) ? data.falhas.length : 0;
+    const totalIgnoradas = Array.isArray(data?.ignoradas) ? data.ignoradas.length : 0;
+    const falhas = Array.isArray(data?.falhas) ? data.falhas : [];
+    const ignoradas = Array.isArray(data?.ignoradas) ? data.ignoradas : [];
+
+    const detalhesIgnoradas = ignoradas
+      .slice(0, 3)
+      .map((item, index) => `${index + 1}. ${String(item?.aula || 'Aula FIAP')}: ${String(item?.motivo || 'Duplicada.')}`)
+      .join('\n');
 
     if (totalFalhas > 0) {
+      const detalhesFalhas = falhas
+        .slice(0, 5)
+        .map((falha, index) => {
+          const titulo = String(falha?.aula || falha?.url || `Aula ${index + 1}`).trim();
+          const motivo = String(falha?.erro || 'Falha nao identificada.').trim();
+          return `${index + 1}. ${titulo}: ${motivo}`;
+        })
+        .join('\n');
+
+      if (falhas.length) {
+        // Mantem todos os detalhes disponiveis para depuracao no navegador.
+        // eslint-disable-next-line no-console
+        console.table(falhas);
+      }
+
       window.alert(
-        `Importação concluída com ressalvas. Importadas: ${totalImportadas}. Falhas: ${totalFalhas}.`
+        `Importação concluída com ressalvas. Importadas: ${totalImportadas}. Falhas: ${totalFalhas}. Ignoradas: ${totalIgnoradas}.\n\n${detalhesFalhas}${
+          totalFalhas > 5 ? '\n... confira o console para ver todas as falhas.' : ''
+        }${detalhesIgnoradas ? `\n\nIgnoradas:\n${detalhesIgnoradas}` : ''}`
       );
       return;
     }
 
-    window.alert(`Importação concluída. Aulas importadas: ${totalImportadas}.`);
+    window.alert(
+      `Importação concluída. Aulas importadas: ${totalImportadas}. Ignoradas: ${totalIgnoradas}.${
+        detalhesIgnoradas ? `\n\nIgnoradas:\n${detalhesIgnoradas}` : ''
+      }`
+    );
   } catch (error) {
     window.alert(error.message);
   } finally {
