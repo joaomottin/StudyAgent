@@ -30,6 +30,7 @@ const MIN_AULAS_POR_CONTEUDO_FIAP = 4;
 const FASES_INDEX = new Map(FASES_CONFIG.map((fase) => [fase.numero, fase]));
 const EXCLUDED_CONTENT_NAME_PATTERNS = [
   'welcome to data analytics',
+  'welcome to machine learning applied to business',
 ];
 
 if (!Number.isFinite(PORT) || PORT <= 0) {
@@ -1075,6 +1076,8 @@ app.post('/api/scrape-fiap/importar-conteudo', async (req, res) => {
         url,
         titulo,
         tipo,
+        htmlUrl: tipo === 'html' || url.includes('/mod/conteudoshtml/') ? url : '',
+        pdfUrl: tipo === 'pdf' || url.includes('/mod/conteudospdf/') ? url : '',
       };
 
       if (!aulasPorChave.has(chave)) {
@@ -1083,15 +1086,17 @@ app.post('/api/scrape-fiap/importar-conteudo', async (req, res) => {
       }
 
       const anterior = aulasPorChave.get(chave);
+      const htmlUrl = anterior.htmlUrl || atual.htmlUrl;
+      const pdfUrl = anterior.pdfUrl || atual.pdfUrl;
       const score = (candidate) => {
         let value = 0;
 
-        if (candidate.tipo === 'html' || candidate.url.includes('/mod/conteudoshtml/')) {
+        if (candidate.tipo === 'pdf' || candidate.url.includes('/mod/conteudospdf/')) {
           value += 10;
         }
 
-        if (candidate.tipo === 'pdf' || candidate.url.includes('/mod/conteudospdf/')) {
-          value += 1;
+        if (candidate.tipo === 'html' || candidate.url.includes('/mod/conteudoshtml/')) {
+          value += 5;
         }
 
         if (candidate.titulo) {
@@ -1102,13 +1107,24 @@ app.post('/api/scrape-fiap/importar-conteudo', async (req, res) => {
       };
 
       if (score(atual) > score(anterior)) {
-        aulasPorChave.set(chave, atual);
+        aulasPorChave.set(chave, {
+          ...atual,
+          htmlUrl,
+          pdfUrl,
+        });
+      } else {
+        aulasPorChave.set(chave, {
+          ...anterior,
+          htmlUrl,
+          pdfUrl,
+        });
       }
     });
 
     const aulasSelecionadas = Array.from(aulasPorChave.values());
     const urls = aulasSelecionadas.map((item) => item.url).filter(Boolean);
     const aulaTituloPorUrl = new Map(aulasSelecionadas.map((item) => [item.url, item.titulo]));
+    const aulaHtmlPorUrl = new Map(aulasSelecionadas.map((item) => [item.url, item.htmlUrl || '']));
 
     if (!urls.length) {
       return res.status(400).json({
@@ -1120,6 +1136,22 @@ app.post('/api/scrape-fiap/importar-conteudo', async (req, res) => {
       ...fiapOptions,
       urls,
     });
+    const htmlUrlsParaVideos = Array.from(
+      new Set(
+        aulasSelecionadas
+          .map((item) => item.htmlUrl)
+          .filter((htmlUrl) => htmlUrl && !urls.includes(htmlUrl))
+      )
+    );
+    const resultadosHtmlParaVideos = htmlUrlsParaVideos.length
+      ? await scrapeAulasFiapEmLote({
+          ...fiapOptions,
+          urls: htmlUrlsParaVideos,
+        })
+      : [];
+    const htmlResultadoPorUrl = new Map(
+      resultadosHtmlParaVideos.map((item) => [item.url, item])
+    );
 
     const nomesAulasExistentes = await listSubdirectories(
       path.join(AULAS_DIR, payload.fase, payload.conteudoGeral)
@@ -1175,8 +1207,14 @@ app.post('/api/scrape-fiap/importar-conteudo', async (req, res) => {
         nomeBase
       );
 
-      const videos = Array.isArray(result.videos)
-        ? result.videos
+      const htmlUrl = aulaHtmlPorUrl.get(item.url);
+      const htmlResult = htmlUrl ? htmlResultadoPorUrl.get(htmlUrl) : null;
+      const videosFonte =
+        htmlResult?.ok && Array.isArray(htmlResult.data?.videos) && htmlResult.data.videos.length
+          ? htmlResult.data.videos
+          : result.videos;
+      const videos = Array.isArray(videosFonte)
+        ? videosFonte
             .map((video, index) => ({
               nome: sanitizeName(video.nome || `Video ${index + 1}`),
               transcricao: normalizeLineBreaks(video.transcricao),

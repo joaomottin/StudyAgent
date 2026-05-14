@@ -5,6 +5,7 @@ const { PDFParse } = require('pdf-parse');
 
 const LOGIN_URL_PADRAO = 'https://on.fiap.com.br/index.php';
 const DASHBOARD_URL_PADRAO = 'https://on.fiap.com.br/local/salavirtual/conteudo-digital.php';
+const COURSE_SWITCH_URL_PADRAO = 'https://on.fiap.com.br/troca-curso.php';
 const SESSION_FILE_PADRAO = path.join(process.cwd(), '.fiap-session.json');
 
 const LOGIN_SELECTORS = {
@@ -54,6 +55,12 @@ const NON_LESSON_TEXT_PATTERNS = [
   'ambiente virtual',
   'comunicados',
   'cronograma',
+  'pagina nao encontrada',
+  'icon servico',
+  'icon helpicon',
+  'suas anotacoes',
+  'criar uma anotacao',
+  'vlibras desativado',
 ];
 
 const TRANSCRIPT_NOISE_LINE_PATTERNS = [
@@ -81,10 +88,12 @@ const PDF_INVALID_STRUCTURE_PATTERN = /invalid\s+pdf\s+structure/i;
 
 const EXCLUDED_LESSON_TITLE_PATTERNS = [
   'welcome to data analytics',
+  'welcome to machine learning applied to business',
 ];
 
 const EXCLUDED_CONTENT_GROUP_NAME_PATTERNS = [
   'welcome to data analytics',
+  'welcome to machine learning applied to business',
 ];
 
 const MIN_LESSONS_PER_CONTENT_DEFAULT = 4;
@@ -126,6 +135,108 @@ function resolveAbsoluteUrl(baseUrl, rawUrl) {
   } catch (error) {
     return '';
   }
+}
+
+function extractCourseIdFromUrl(url) {
+  try {
+    const parsed = new URL(String(url || ''), LOGIN_URL_PADRAO);
+    const courseId = parsed.searchParams.get('c') || parsed.searchParams.get('id');
+
+    return /^\d+$/.test(String(courseId || '')) ? String(courseId) : '';
+  } catch (error) {
+    return '';
+  }
+}
+
+function getLessonIdentity(url) {
+  try {
+    const parsed = new URL(String(url || ''), LOGIN_URL_PADRAO);
+
+    return {
+      pathname: parsed.pathname,
+      id: parsed.searchParams.get('id') || '',
+      courseId: parsed.searchParams.get('c') || '',
+    };
+  } catch (error) {
+    return {
+      pathname: '',
+      id: '',
+      courseId: '',
+    };
+  }
+}
+
+async function switchCourseForLesson(page, aulaUrl) {
+  const courseId = extractCourseIdFromUrl(aulaUrl);
+
+  if (!courseId) {
+    return;
+  }
+
+  const switchUrl = `${COURSE_SWITCH_URL_PADRAO}?id=${encodeURIComponent(courseId)}`;
+  await page.goto(switchUrl, { waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => {});
+  await page.waitForTimeout(1000).catch(() => {});
+}
+
+async function refreshLessonUrlFromCurrentPage(page, aulaUrl) {
+  const identity = getLessonIdentity(aulaUrl);
+
+  if (!identity.id || !identity.courseId) {
+    return aulaUrl;
+  }
+
+  const refreshed = await page.evaluate((target) => {
+    const links = Array.from(document.querySelectorAll('a[href]')).map((anchor) => anchor.href);
+
+    return links.find((href) => {
+      try {
+        const parsed = new URL(href);
+        return (
+          parsed.pathname === target.pathname &&
+          parsed.searchParams.get('id') === target.id &&
+          parsed.searchParams.get('c') === target.courseId
+        );
+      } catch (error) {
+        return false;
+      }
+    }) || '';
+  }, identity).catch(() => '');
+
+  return refreshed || aulaUrl;
+}
+
+async function prepareLessonNavigation(page, aulaUrl) {
+  await switchCourseForLesson(page, aulaUrl);
+  return refreshLessonUrlFromCurrentPage(page, aulaUrl);
+}
+
+function extractPdfUrlFromCandidate(rawUrl, baseUrl = LOGIN_URL_PADRAO) {
+  const absoluteUrl = resolveAbsoluteUrl(baseUrl, rawUrl);
+
+  if (!absoluteUrl) {
+    return '';
+  }
+
+  if (/\.pdf(\?|$)/i.test(absoluteUrl)) {
+    return absoluteUrl;
+  }
+
+  try {
+    const parsed = new URL(absoluteUrl);
+    const fileParam = parsed.searchParams.get('file');
+
+    if (fileParam) {
+      const fileUrl = resolveAbsoluteUrl(absoluteUrl, fileParam);
+
+      if (/\.pdf(\?|$)/i.test(fileUrl)) {
+        return fileUrl;
+      }
+    }
+  } catch (error) {
+    // fallback abaixo
+  }
+
+  return '';
 }
 
 function normalizeComparableText(value) {
@@ -170,6 +281,26 @@ function sanitizeTranscriptChunk(value) {
   return normalizeText(cleaned.join('\n'));
 }
 
+function uniqueTranscriptItems(items) {
+  const byText = new Map();
+
+  (items || []).forEach((item, index) => {
+    const transcricao = sanitizeTranscriptChunk(item?.transcricao || item?.text || item);
+    const key = normalizeComparableText(transcricao);
+
+    if (!key || transcricao.length <= 40 || byText.has(key) || isLikelyNonLessonText(transcricao)) {
+      return;
+    }
+
+    byText.set(key, {
+      nome: sanitizeTranscriptChunk(item?.nome || item?.name || `Video ${index + 1}`) || `Video ${index + 1}`,
+      transcricao,
+    });
+  });
+
+  return Array.from(byText.values());
+}
+
 function guessPdfFileName(url) {
   try {
     const parsed = new URL(String(url || ''));
@@ -188,6 +319,34 @@ function guessPdfFileName(url) {
 async function getPageAndFrameTargets(page) {
   const frames = page.frames().filter((frame) => frame !== page.mainFrame());
   return [page.mainFrame(), ...frames];
+}
+
+async function waitForLessonContentFrame(page) {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    for (const frame of page.frames()) {
+      const frameUrl = String(frame.url() || '');
+
+      if (frameUrl.includes('/local_conteudoshtml/conteudo/')) {
+        const textLength = await frame
+          .evaluate(() => String(document.body?.innerText || '').trim().length)
+          .catch(() => 0);
+
+        if (textLength >= MIN_MAIN_TEXT_LENGTH) {
+          return;
+        }
+      }
+
+      if (
+        frameUrl.includes('/mod/conteudospdf/leitor/') ||
+        frameUrl.includes('/local_conteudospdf/') ||
+        /\.pdf(\?|$)/i.test(decodeURIComponent(frameUrl))
+      ) {
+        return;
+      }
+    }
+
+    await page.waitForTimeout(750).catch(() => {});
+  }
 }
 
 async function clickTranscriptHintsInTarget(target) {
@@ -835,6 +994,156 @@ async function readTranscriptBlocks(page) {
   );
 }
 
+async function openFiapTranscriptionsPanel(page) {
+  for (let attempt = 0; attempt < 16; attempt += 1) {
+    const isOpen = await page
+      .locator('.js-section-transcricoes-materiais.aberto, .transcricoes-materiais-panel.aberto')
+      .count()
+      .then((value) => value > 0)
+      .catch(() => false);
+
+    if (isOpen) {
+      return true;
+    }
+
+    const count = await page.locator('.js-button-transcriptions-materials').count().catch(() => 0);
+
+    if (count) {
+      const button = page.locator('.js-button-transcriptions-materials').first();
+      await button.scrollIntoViewIfNeeded().catch(() => {});
+      await button.click({ timeout: 1500, force: true }).catch(() => {});
+      await page.evaluate(() => {
+        const buttonNode = document.querySelector('.js-button-transcriptions-materials');
+        if (buttonNode) {
+          buttonNode.click();
+        }
+      }).catch(() => {});
+    }
+
+    await page.waitForTimeout(750).catch(() => {});
+  }
+
+  return false;
+}
+
+async function collectFiapPanelTranscripts(page) {
+  const opened = await openFiapTranscriptionsPanel(page);
+
+  if (!opened) {
+    return [];
+  }
+
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const hasTranscriptText = await page.evaluate(() => {
+      return Array.from(document.querySelectorAll('.transcricoes-texto')).some((node) =>
+        String(node.innerText || node.textContent || '').trim().length >= 80
+      );
+    }).catch(() => false);
+
+    if (hasTranscriptText) {
+      break;
+    }
+
+    await page.waitForTimeout(500).catch(() => {});
+  }
+
+  const items = await page.evaluate(() => {
+    const normalize = (value) =>
+      String(value || '')
+        .replace(/\r\n/g, '\n')
+        .replace(/\u00a0/g, ' ')
+        .trim();
+
+    const panels = Array.from(
+      document.querySelectorAll('.js-section-transcricoes-materiais, .transcricoes-materiais-panel')
+    );
+    const roots = panels.length ? panels : [document.body];
+    const videos = [];
+
+    roots.forEach((root) => {
+      const detailNodes = Array.from(
+        root.querySelectorAll('.js-transcricoes-detalhe-view, .transcricoes-detalhe-view')
+      );
+
+      detailNodes.forEach((detail, index) => {
+        const titleNode = detail.querySelector(
+          '.transcricoes-voltar-nome, .js-transcricoes-voltar, .transcricoes-voltar-btn'
+        );
+        const textNode = detail.querySelector('.transcricoes-texto');
+        const title = normalize(titleNode?.innerText || titleNode?.textContent || '');
+        const transcricao = normalize(textNode?.innerText || textNode?.textContent || '');
+
+        if (transcricao.length >= 80) {
+          videos.push({
+            nome: title || `Video ${index + 1}`,
+            transcricao,
+          });
+        }
+      });
+    });
+
+    if (videos.length) {
+      return videos;
+    }
+
+    const buttons = Array.from(document.querySelectorAll('.js-video-selector-btn, .transcricoes-video-card-btn'));
+    return buttons
+      .map((button, index) => ({
+        nome: normalize(button.innerText || button.textContent || `Video ${index + 1}`),
+        transcricao: '',
+      }))
+      .filter((item) => item.nome);
+  }).catch(() => []);
+
+  if (items.some((item) => item.transcricao)) {
+    return uniqueTranscriptItems(items);
+  }
+
+  const fallbackItems = [];
+  const buttons = page.locator('.js-video-selector-btn, .transcricoes-video-card-btn');
+  const count = await buttons.count().catch(() => 0);
+
+  for (let index = 0; index < count; index += 1) {
+    await buttons.nth(index).click({ timeout: 3000, force: true }).catch(() => {});
+    await page.waitForTimeout(500).catch(() => {});
+
+    const item = await page.evaluate((videoIndex) => {
+      const normalize = (value) =>
+        String(value || '')
+          .replace(/\r\n/g, '\n')
+          .replace(/\u00a0/g, ' ')
+          .trim();
+      const activeDetail =
+        Array.from(document.querySelectorAll('.js-transcricoes-detalhe-view, .transcricoes-detalhe-view'))
+          .find((detail) => {
+            const style = window.getComputedStyle(detail);
+            return style.display !== 'none' && style.visibility !== 'hidden';
+          }) ||
+        document.querySelector('.js-transcricoes-detalhe-view, .transcricoes-detalhe-view');
+
+      if (!activeDetail) {
+        return null;
+      }
+
+      const titleNode = activeDetail.querySelector(
+        '.transcricoes-voltar-nome, .js-transcricoes-voltar, .transcricoes-voltar-btn'
+      );
+      const textNode = activeDetail.querySelector('.transcricoes-texto');
+
+      return {
+        nome: normalize(titleNode?.innerText || titleNode?.textContent || `Video ${videoIndex + 1}`),
+        transcricao: normalize(textNode?.innerText || textNode?.textContent || ''),
+      };
+    }, index).catch(() => null);
+
+    if (item) {
+      fallbackItems.push(item);
+    }
+  }
+
+  return uniqueTranscriptItems(fallbackItems);
+}
+
 async function downloadSubtitleTracks(context, urls) {
   const collected = [];
 
@@ -881,8 +1190,10 @@ async function scrapeHtmlLesson(page, aulaUrl) {
   page.on('response', onResponse);
 
   try {
-    await page.goto(aulaUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    const lessonUrl = await prepareLessonNavigation(page, aulaUrl);
+    await page.goto(lessonUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
     await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
+    await waitForLessonContentFrame(page);
     await assertOnLessonPage(page, aulaUrl);
 
     const targets = await getPageAndFrameTargets(page);
@@ -891,7 +1202,9 @@ async function scrapeHtmlLesson(page, aulaUrl) {
       domSubtitleUrls.forEach((url) => subtitleUrlSet.add(url));
     }
 
-    await clickTranscriptToggles(page);
+    let aulaTranscricao = await readMainContent(page);
+
+    const panelVideos = await collectFiapPanelTranscripts(page);
 
     for (const target of targets) {
       const domSubtitleUrls = await collectSubtitleTrackUrlsFromTarget(target, page.url());
@@ -905,25 +1218,24 @@ async function scrapeHtmlLesson(page, aulaUrl) {
       })
     );
 
-    let aulaTranscricao = await readMainContent(page);
-    const transcriptBlocks = await readTranscriptBlocks(page);
+    const transcriptBlocks = panelVideos.length ? [] : await readTranscriptBlocks(page);
     const subtitleTracks = await downloadSubtitleTracks(page.context(), Array.from(subtitleUrlSet));
-    const videosRaw = uniqueValues([...transcriptBlocks, ...subtitleTracks]);
-    const videosJoined = normalizeText(videosRaw.join('\n\n'));
-
-    if (videosJoined.length >= 240) {
-      aulaTranscricao = videosJoined;
-    }
+    const fallbackVideos = uniqueValues([...transcriptBlocks, ...subtitleTracks]).map((transcricao, index) => ({
+      nome: `Video ${index + 1}`,
+      transcricao,
+    }));
+    const videos = uniqueTranscriptItems([...panelVideos, ...fallbackVideos]);
+    const videosJoined = normalizeText(videos.map((video) => video.transcricao).join('\n\n'));
 
     if (
-      videosRaw.length > 0
+      videos.length > 0
       && (!aulaTranscricao || aulaTranscricao.length < MIN_MAIN_TEXT_LENGTH || isLikelyNonLessonText(aulaTranscricao))
     ) {
       aulaTranscricao = videosJoined;
     }
 
     const hasMainText = aulaTranscricao.length >= MIN_MAIN_TEXT_LENGTH && !isLikelyNonLessonText(aulaTranscricao);
-    const hasVideoTranscripts = videosRaw.length > 0;
+    const hasVideoTranscripts = videos.length > 0;
 
     if (!hasMainText && hasVideoTranscripts) {
       aulaTranscricao = videosJoined;
@@ -932,11 +1244,6 @@ async function scrapeHtmlLesson(page, aulaUrl) {
     if (!aulaTranscricao || isLikelyNonLessonText(aulaTranscricao) || (!hasMainText && !hasVideoTranscripts)) {
       throw new Error('Nao foi possivel extrair o conteudo da aula HTML na FIAP.');
     }
-
-    const videos = videosRaw.map((transcricao, index) => ({
-      nome: `Video ${index + 1}`,
-      transcricao,
-    }));
 
     return {
       tipo: 'html',
@@ -980,7 +1287,17 @@ async function resolvePdfCandidates(page) {
     return urls;
   });
 
-  return uniqueValues(domCandidates.map((url) => resolveAbsoluteUrl(page.url(), url)));
+  const frameCandidates = page.frames().map((frame) => frame.url()).filter(Boolean);
+  const candidates = [
+    ...domCandidates.map((url) => resolveAbsoluteUrl(page.url(), url)),
+    ...frameCandidates,
+  ];
+
+  return uniqueValues(
+    candidates
+      .map((url) => extractPdfUrlFromCandidate(url, page.url()))
+      .filter(Boolean)
+  );
 }
 
 async function extractTextFromPdfBuffer(buffer) {
@@ -992,6 +1309,62 @@ async function extractTextFromPdfBuffer(buffer) {
   } finally {
     await parser.destroy().catch(() => {});
   }
+}
+
+async function fetchPdfBufferFromViewerFrame(page, pdfUrl) {
+  const viewerFrames = page.frames().filter((frame) =>
+    String(frame.url() || '').includes('/mod/conteudospdf/leitor/')
+  );
+
+  for (const frame of viewerFrames) {
+    const result = await frame.evaluate(async (targetUrl) => {
+      const currentFileUrl = new URL(window.location.href).searchParams.get('file') || '';
+      const fetchUrl = currentFileUrl || targetUrl;
+
+      if (!fetchUrl) {
+        return null;
+      }
+
+      const response = await fetch(fetchUrl, { credentials: 'include' });
+      const buffer = await response.arrayBuffer();
+      const bytes = new Uint8Array(buffer);
+      let binary = '';
+      const chunkSize = 0x8000;
+
+      for (let index = 0; index < bytes.length; index += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+      }
+
+      return {
+        ok: response.ok,
+        status: response.status,
+        contentType: response.headers.get('content-type') || '',
+        base64: btoa(binary),
+      };
+    }, pdfUrl).catch(() => null);
+
+    if (result?.ok && String(result.contentType || '').toLowerCase().includes('application/pdf')) {
+      return Buffer.from(result.base64, 'base64');
+    }
+  }
+
+  return null;
+}
+
+async function downloadPdfBuffer(page, pdfUrl) {
+  const viewerBuffer = await fetchPdfBufferFromViewerFrame(page, pdfUrl);
+
+  if (viewerBuffer) {
+    return viewerBuffer;
+  }
+
+  const response = await page.context().request.get(encodeURI(pdfUrl), { timeout: 30000 });
+
+  if (!response.ok()) {
+    throw new Error(`Falha ao baixar PDF da FIAP. Status ${response.status()}.`);
+  }
+
+  return Buffer.from(await response.body());
 }
 
 async function scrapePdfLesson(page, aulaUrl) {
@@ -1009,7 +1382,9 @@ async function scrapePdfLesson(page, aulaUrl) {
   page.on('response', onResponse);
 
   try {
-    await page.goto(aulaUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    const lessonUrl = await prepareLessonNavigation(page, aulaUrl);
+    await page.goto(lessonUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await waitForLessonContentFrame(page);
     await assertOnLessonPage(page, aulaUrl);
 
     const domCandidates = await resolvePdfCandidates(page);
@@ -1030,13 +1405,7 @@ async function scrapePdfLesson(page, aulaUrl) {
       throw new Error('Nao foi possivel localizar o PDF da aula na pagina da FIAP.');
     }
 
-    const response = await page.context().request.get(pdfUrl, { timeout: 30000 });
-
-    if (!response.ok()) {
-      throw new Error(`Falha ao baixar PDF da FIAP. Status ${response.status()}.`);
-    }
-
-    const pdfBuffer = Buffer.from(await response.body());
+    const pdfBuffer = await downloadPdfBuffer(page, pdfUrl);
     const aulaTranscricao = await extractTextFromPdfBuffer(pdfBuffer);
 
     if (!aulaTranscricao) {

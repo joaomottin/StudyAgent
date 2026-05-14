@@ -182,11 +182,23 @@ function getStructuredAulaData(aulaData) {
     conclusao: '',
     referencias: [],
     resumo_necessario: false,
+    estrutura_detectada: false,
+    conteudo_bruto: aulaData?.material?.text || '',
   };
 }
 
 function buildAulaContextPayload(aulaData) {
   const schema = getStructuredAulaData(aulaData);
+  const hasStructuredContent = Boolean(
+    schema.estrutura_detectada ||
+    schema.introducao ||
+    schema.saiba_mais ||
+    schema.mercado_cases ||
+    schema.conclusao ||
+    schema.codigo_hands_on ||
+    schema.orientacao_pratica
+  );
+  const rawMaterial = String(schema.conteudo_bruto || aulaData?.material?.text || '').trim();
 
   return {
     aula: {
@@ -196,6 +208,7 @@ function buildAulaContextPayload(aulaData) {
       palavras_chave: schema.palavras_chave,
       ferramentas: schema.ferramentas,
       resumo_necessario: schema.resumo_necessario,
+      estrutura_detectada: Boolean(schema.estrutura_detectada),
       material_original_pdf: Boolean(aulaData?.materialOriginal?.hasPdf),
     },
     conteudo: {
@@ -206,6 +219,7 @@ function buildAulaContextPayload(aulaData) {
       referencias: schema.referencias,
       codigo_hands_on: schema.codigo_hands_on,
       orientacao_pratica: schema.orientacao_pratica,
+      material_bruto_relevante: sliceText(rawMaterial, hasStructuredContent ? 3000 : 9000),
     },
     videos: aulaData?.videos?.files?.map((video) => ({
       arquivo: video.fileName,
@@ -225,6 +239,7 @@ function buildSearchCorpusFromStructuredAulas(aulas) {
       palavras_chave: schema.palavras_chave,
       ferramentas: schema.ferramentas,
       resumo_necessario: schema.resumo_necessario,
+      estrutura_detectada: Boolean(schema.estrutura_detectada),
       material_original_pdf: Boolean(aulaData?.materialOriginal?.hasPdf),
       introducao: sliceText(schema.introducao, 1200),
       saiba_mais: sliceText(schema.saiba_mais, 1800),
@@ -232,6 +247,7 @@ function buildSearchCorpusFromStructuredAulas(aulas) {
       conclusao: sliceText(schema.conclusao, 900),
       codigo_hands_on: sliceText(schema.codigo_hands_on, 900),
       orientacao_pratica: sliceText(schema.orientacao_pratica, 900),
+      material_bruto_relevante: sliceText(schema.conteudo_bruto || aulaData?.material?.text, 1800),
       referencias: schema.referencias,
       videos: (aulaData?.videos?.files || []).map((video) => ({
         arquivo: video.fileName,
@@ -375,7 +391,8 @@ async function callGeminiApi(
 
 function buildPromptResumo(contexto, multimodalHint) {
   return [
-    'Com base no JSON estruturado da aula e trechos dos videos, gere um resumo estruturado em markdown com: Introducao, Principais Conceitos, Ferramentas e Tecnologias Mencionadas, Dicas Importantes e Conclusao.',
+    'Com base no JSON estruturado, no material bruto relevante e nos trechos dos videos, gere um resumo estruturado em markdown com: Introducao, Principais Conceitos, Ferramentas e Tecnologias Mencionadas, Dicas Importantes e Conclusao.',
+    'Se aula.estrutura_detectada=false ou alguma secao estruturada estiver vazia, use material_bruto_relevante como fonte principal em vez de inventar lacunas.',
     multimodalHint,
     '',
     buildResumoNecessarioHint(contexto.aula),
@@ -387,7 +404,8 @@ function buildPromptResumo(contexto, multimodalHint) {
 
 function buildPromptMapaMental(contexto, multimodalHint) {
   return [
-    'Com base no JSON estruturado da aula e trechos dos videos, gere um mapa mental hierarquico em markdown usando bullets e sub-bullets. O tema central deve ser o assunto principal da aula. Use no maximo 4 niveis de hierarquia.',
+    'Com base no JSON estruturado da aula, no material bruto relevante e nos trechos dos videos, gere um mapa mental hierarquico em markdown usando bullets e sub-bullets. O tema central deve ser o assunto principal da aula. Use no maximo 4 niveis de hierarquia.',
+    'Se aula.estrutura_detectada=false ou alguma secao estruturada estiver vazia, use material_bruto_relevante como fonte principal em vez de inventar lacunas.',
     multimodalHint,
     '',
     buildResumoNecessarioHint(contexto.aula),
@@ -399,7 +417,8 @@ function buildPromptMapaMental(contexto, multimodalHint) {
 
 function buildPromptFlashcards(contexto, multimodalHint) {
   return [
-    'Com base no JSON estruturado da aula e trechos dos videos, gere entre 8 e 12 pares de pergunta e resposta para revisao de estudo. Retorne SOMENTE um JSON valido, sem markdown, no formato: [{"pergunta": "...", "resposta": "..."}]',
+    'Com base no JSON estruturado da aula, no material bruto relevante e nos trechos dos videos, gere entre 8 e 12 pares de pergunta e resposta para revisao de estudo. Retorne SOMENTE um JSON valido, sem markdown, no formato: [{"pergunta": "...", "resposta": "..."}]',
+    'Se aula.estrutura_detectada=false ou alguma secao estruturada estiver vazia, use material_bruto_relevante como fonte principal em vez de inventar lacunas.',
     multimodalHint,
     '',
     buildResumoNecessarioHint(contexto.aula),

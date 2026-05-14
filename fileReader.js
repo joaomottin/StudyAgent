@@ -15,6 +15,17 @@ const SECTION_LABELS = {
   palavras_chave: 'palavras chave',
 };
 
+const SECTION_ALIASES = {
+  ignore: ['capa', 'sumario', 'indice'],
+  introducao: ['o que vem por ai', 'o que vem ai'],
+  hands_on: ['hands on', 'mao na massa', 'na pratica'],
+  saiba_mais: ['saiba mais', 'aprofundando', 'para saber mais'],
+  mercado_cases: ['mercado cases e tendencias', 'mercado cases', 'cases e tendencias'],
+  conclusao: ['o que voce viu nesta aula', 'o que vimos nesta aula', 'conclusao', 'recapitulando'],
+  referencias: ['referencias', 'referencia', 'bibliografia'],
+  palavras_chave: ['palavras chave', 'palavras chaves', 'keywords'],
+};
+
 const FERRAMENTAS_KEYWORDS = [
   'Pandas',
   'Matplotlib',
@@ -108,6 +119,48 @@ function detectHandsOnCode(text) {
   return hasIndentCode || hasCommonCodeTokens;
 }
 
+function buildHeadingLookup() {
+  const lookup = new Map();
+
+  Object.entries(SECTION_ALIASES).forEach(([key, labels]) => {
+    labels.forEach((label) => {
+      lookup.set(normalizeHeading(label), key);
+    });
+  });
+
+  Object.entries(SECTION_LABELS).forEach(([key, label]) => {
+    const sectionKey = ['capa', 'sumario'].includes(key) ? 'ignore' : key;
+    lookup.set(normalizeHeading(label), sectionKey);
+  });
+
+  return lookup;
+}
+
+function resolveHeadingAt(lines, index, headingLookup) {
+  const parts = [];
+
+  for (let offset = 0; offset < 3 && index + offset < lines.length; offset += 1) {
+    const normalized = normalizeHeading(lines[index + offset]);
+
+    if (!normalized) {
+      break;
+    }
+
+    parts.push(normalized);
+    const joined = parts.join(' ');
+    const directMatch = headingLookup.get(joined);
+
+    if (directMatch) {
+      return {
+        key: directMatch,
+        consumed: offset + 1,
+      };
+    }
+  }
+
+  return null;
+}
+
 function parseSectionBuckets(materialText) {
   const lines = String(materialText || '').replace(/\r\n/g, '\n').split('\n');
 
@@ -121,35 +174,24 @@ function parseSectionBuckets(materialText) {
     palavras_chave: [],
   };
 
-  const headingToKey = {
-    [SECTION_LABELS.capa]: 'ignore',
-    [SECTION_LABELS.sumario]: 'ignore',
-    [SECTION_LABELS.introducao]: 'introducao',
-    [SECTION_LABELS.hands_on]: 'hands_on',
-    [SECTION_LABELS.saiba_mais]: 'saiba_mais',
-    [SECTION_LABELS.mercado_cases]: 'mercado_cases',
-    [SECTION_LABELS.conclusao]: 'conclusao',
-    [SECTION_LABELS.referencias]: 'referencias',
-    [SECTION_LABELS.palavras_chave]: 'palavras_chave',
-  };
-
+  const headingLookup = buildHeadingLookup();
   let current = null;
 
-  lines.forEach((line) => {
-    const normalized = normalizeHeading(line);
-    const directMatch = headingToKey[normalized];
+  for (let index = 0; index < lines.length; index += 1) {
+    const heading = resolveHeadingAt(lines, index, headingLookup);
 
-    if (directMatch) {
-      current = directMatch;
-      return;
+    if (heading) {
+      current = heading.key;
+      index += heading.consumed - 1;
+      continue;
     }
 
     if (!current || current === 'ignore') {
-      return;
+      continue;
     }
 
-    buckets[current].push(line);
-  });
+    buckets[current].push(lines[index]);
+  }
 
   return {
     introducao: normalizeText(buckets.introducao.join('\n')),
@@ -164,15 +206,27 @@ function parseSectionBuckets(materialText) {
 
 function buildAulaJsonSchema(nomeAula, materialText, videosText) {
   const sections = parseSectionBuckets(materialText);
+  const hasDetectedSections = [
+    sections.introducao,
+    sections.hands_on,
+    sections.saiba_mais,
+    sections.mercado_cases,
+    sections.conclusao,
+  ].some(Boolean);
   let resumoNecessario = false;
 
   const introducao = truncateSection(sections.introducao);
-  const saibaMais = truncateSection(sections.saiba_mais);
+  const fallbackContent = !hasDetectedSections ? truncateSection(materialText) : { text: '', truncated: false };
+  const saibaMais = truncateSection(hasDetectedSections ? sections.saiba_mais : materialText);
   const mercadoCases = truncateSection(sections.mercado_cases);
   const conclusao = truncateSection(sections.conclusao);
 
   resumoNecessario =
-    introducao.truncated || saibaMais.truncated || mercadoCases.truncated || conclusao.truncated;
+    introducao.truncated ||
+    saibaMais.truncated ||
+    mercadoCases.truncated ||
+    conclusao.truncated ||
+    fallbackContent.truncated;
 
   const handsOnRaw = sections.hands_on;
   let codigoHandsOn = null;
@@ -218,6 +272,8 @@ function buildAulaJsonSchema(nomeAula, materialText, videosText) {
     conclusao: conclusao.text,
     referencias,
     resumo_necessario: resumoNecessario,
+    estrutura_detectada: hasDetectedSections,
+    conteudo_bruto: fallbackContent.text,
   };
 }
 
